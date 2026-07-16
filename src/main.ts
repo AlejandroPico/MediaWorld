@@ -3,6 +3,7 @@ import "./styles.css";
 import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
 import Hls from "hls.js";
 import { loadCatalog } from "./db";
+import { CanvasGlobe } from "./canvasGlobe";
 import type { CatalogStats, MediaType, Station } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -118,8 +119,11 @@ let hls: Hls | null = null;
 let isPlaying = false;
 
 let map: maplibregl.Map | null = null;
+let canvasGlobe: CanvasGlobe | null = null;
 const showMapFallback = (): void => {
-  byId("map").innerHTML = `<div class="map-fallback"><span>◎</span><strong>Vista 3D no disponible</strong><p>El catálogo sigue operativo. Activa la aceleración gráfica del navegador para ver el globo.</p></div>`;
+  const container = byId("map");
+  container.innerHTML = `<div class="canvas-globe" id="canvas-globe"></div>`;
+  canvasGlobe = new CanvasGlobe(byId("canvas-globe"), (station) => showStation(station));
   document.documentElement.classList.add("no-webgl");
 };
 const supportsWebGL = (): boolean => {
@@ -178,6 +182,7 @@ function visibleStations(items: Station[]): Station[] {
 function updateMapData(items: Station[]): void {
   const source = map?.getSource("stations") as GeoJSONSource | undefined;
   source?.setData({ type: "FeatureCollection", features: items.map(stationToFeature) });
+  canvasGlobe?.setStations(items);
 }
 
 function renderList(): void {
@@ -219,6 +224,7 @@ function showStation(station: Station, fly = false): void {
   livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
   stopMedia();
   if (fly && map) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 6), duration: 1400 });
+  if (fly && canvasGlobe) canvasGlobe.flyTo(station);
   renderList();
 }
 
@@ -268,6 +274,7 @@ function selectRelative(direction: number): void {
 function applyTheme(): void {
   const isLight = document.documentElement.classList.toggle("light-theme");
   localStorage.setItem("mediaworld-theme", isLight ? "light" : "dark");
+  canvasGlobe?.setLight(isLight);
   if (!map) return;
   map.setStyle(isLight ? "https://tiles.openfreemap.org/styles/positron" : "https://tiles.openfreemap.org/styles/liberty");
   map.once("style.load", installStationLayers);
@@ -335,11 +342,11 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
   document.querySelector<HTMLButtonElement>('[data-type="tv"]')?.classList.toggle("is-active", enabledTypes.has("tv"));
   renderList();
 }));
-byId("home-button").addEventListener("click", () => map?.flyTo({ center: [8, 25], zoom: 1.55, pitch: 0, bearing: 0 }));
+byId("home-button").addEventListener("click", () => { map?.flyTo({ center: [8, 25], zoom: 1.55, pitch: 0, bearing: 0 }); canvasGlobe?.home(); });
 byId("reset-button").addEventListener("click", () => { searchInput.value = ""; enabledTypes = new Set(["radio", "tv"]); document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active")); renderList(); });
-byId("zoom-in").addEventListener("click", () => map?.zoomIn());
-byId("zoom-out").addEventListener("click", () => map?.zoomOut());
-byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
+byId("zoom-in").addEventListener("click", () => { map?.zoomIn(); canvasGlobe?.zoomIn(); });
+byId("zoom-out").addEventListener("click", () => { map?.zoomOut(); canvasGlobe?.zoomOut(); });
+byId("reset-bearing").addEventListener("click", () => { map?.easeTo({ bearing: 0, pitch: 0 }); canvasGlobe?.north(); });
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
 byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map?.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 10 })));
@@ -372,5 +379,7 @@ function showStats(stats: CatalogStats): void {
   byId("catalog-status").innerHTML = `<span class="pulse"></span> ${stats.countries} países · ${stats.playable} señales listas`;
 }
 
-if (localStorage.getItem("mediaworld-theme") === "light") document.documentElement.classList.add("light-theme");
+if (localStorage.getItem("mediaworld-theme") === "light") {
+  document.documentElement.classList.add("light-theme");
+}
 void boot();
