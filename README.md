@@ -13,10 +13,10 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Filtros compartidos por radio/televisión, país, región, disponibilidad de emisión y presencia de coordenadas.
 - Fichas editoriales con alcance, idioma, localización, estado de la emisión y web oficial.
 - Catálogo mundial independiente en tarjetas compactas, con carga continua al desplazarse, estado en tiempo real y acceso a las fichas sin coordenadas.
-- Reproductor minimalista de audio y vídeo, visible por defecto, ocultable sin detener la emisión y sin reproducción automática. Consultar otras fichas tampoco interrumpe lo que está sonando.
+- Reproductor minimalista de audio y vídeo, visible por defecto y ocultable sin detener la emisión. Consultar otras fichas tampoco interrumpe lo que está sonando.
 - Nombre de programa o canción en el reproductor y en las fichas cuando la propia emisión HLS entrega metadatos ID3; el espacio desaparece cuando la fuente no los facilita.
 - Comprobación de salud durante la reproducción con estados de conexión, emisión, inestabilidad y falta de respuesta.
-- Modo descubrimiento para viajar al azar a una señal reproducible y geolocalizada que cumpla los filtros activos, sin iniciarla automáticamente.
+- Modo descubrimiento para viajar con zoom cercano a una señal reproducible y geolocalizada que cumpla los filtros activos e iniciar su emisión inmediatamente.
 - Temas noche, automático y día con cambio directo desde la botonera; automático sigue la luz solar de la ubicación y noche es el valor inicial para usuarios nuevos.
 - Catálogo SQLite real cargado y consultado dentro del navegador mediante WebAssembly.
 - Diseño adaptable a escritorio y móvil, con temas oscuro y claro.

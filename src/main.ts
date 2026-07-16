@@ -371,16 +371,21 @@ function showStation(station: Station, fly = false): void {
   const programme = programmeFor(station);
   const health = healthDetails[healthFor(station)];
   const isThisPlaying = playingStation?.id === station.id && isPlaying;
+  const imageUrl = safeUrl(station.faviconUrl);
+  const stationLogo = imageUrl !== "#"
+    ? `<img src="${escapeHtml(imageUrl)}" alt="" onerror="this.hidden=true;this.nextElementSibling.removeAttribute('hidden')"><span hidden>${escapeHtml(initials(station.name))}</span>`
+    : `<span>${escapeHtml(initials(station.name))}</span>`;
+  const location = [station.city, station.region, station.country].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ");
   stationCard.hidden = false;
   stationCard.innerHTML = `
     <button class="station-card__close" id="station-card-close" aria-label="Cerrar">×</button>
-    <div class="station-card__head"><span class="station-logo ${station.mediaType}">${escapeHtml(initials(station.name))}</span><div><small>${station.mediaType === "radio" ? "RADIO" : "TELEVISIÓN"} · ${escapeHtml(station.scope.toUpperCase())}</small><h2>${escapeHtml(station.name)}</h2><p>${escapeHtml(station.city)}, ${escapeHtml(station.region)} · ${escapeHtml(station.country)}</p></div></div>
-    <p class="station-card__description">${escapeHtml(station.description)}</p>
+    <div class="station-card__head"><span class="station-logo ${station.mediaType}">${stationLogo}</span><div><small>${station.mediaType === "radio" ? "RADIO" : "TELEVISIÓN"} · ${escapeHtml(station.scope.toUpperCase())}</small><h2>${escapeHtml(station.name)}</h2><p>${escapeHtml(location)}</p></div></div>
     <div class="station-card__programme" id="station-programme" ${programme ? "" : "hidden"}><small>AHORA</small><strong>${escapeHtml(programme)}</strong></div>
+    <p class="station-card__description">${escapeHtml(station.description)}</p>
     <div class="station-card__meta"><span><small>IDIOMA</small>${escapeHtml(station.language)}</span><span><small>ESTADO</small><b class="station-health ${health.className}" id="card-health" data-station-id="${station.id}">${health.label}</b></span></div>
     <div class="station-card__actions">
       <button class="primary-action" id="card-play" ${station.streamUrl ? "" : "disabled"}>${station.streamUrl ? (isThisPlaying ? "Ⅱ Pausar" : playingStation?.id === station.id ? "▶ Reanudar" : "▶ Reproducir") : "Emisión pendiente"}</button>
-      <a href="${safeUrl(station.websiteUrl)}" target="_blank" rel="noreferrer" title="Abrir sitio oficial">↗</a>
+      <a class="official-link" href="${safeUrl(station.websiteUrl)}" target="_blank" rel="noreferrer" aria-label="Visitar el sitio oficial" title="Visitar el sitio oficial">${icon('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.2 3.3 8.5S14.2 18.1 12 20.5C9.8 18.1 8.7 15.3 8.7 12S9.8 5.9 12 3.5Z"/>')}</a>
     </div>`;
   byId("station-card-close").addEventListener("click", () => { stationCard.hidden = true; });
   byId<HTMLButtonElement>("card-play").addEventListener("click", () => void startPlayback(station));
@@ -518,7 +523,9 @@ function discoverStation(): void {
   crypto.getRandomValues(random);
   const station = pool[random[0] % pool.length];
   setView("map");
-  showStation(station, true);
+  showStation(station);
+  if (map && isMappable(station)) map.flyTo({ center: [station.longitude, station.latitude], zoom: 14.5, pitch: 45, bearing: 0, duration: 1900 });
+  if (playingStation?.id !== station.id || !isPlaying) void startPlayback(station);
 }
 
 function selectRelative(direction: number): void {
