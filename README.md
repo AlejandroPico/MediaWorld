@@ -5,6 +5,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 ## Primera versión
 
 - Globo vectorial 3D con zoom, etiquetas cartográficas progresivas y controles táctiles.
+- Esfera geográfica Canvas 2D completa para navegadores o equipos sin WebGL: continentes, rotación, zoom y rótulos por nivel.
 - Catálogo geolocalizado de radio y televisión con agrupación de señales.
 - Búsqueda por emisora, ciudad, región, país o idioma.
 - Filtros independientes para radio y televisión.
@@ -40,7 +41,7 @@ Una ficha `catalogued` confirma la inclusión enciclopédica, no la disponibilid
 
 ## Cartografía y atribución
 
-La interfaz usa MapLibre GL JS y la instancia pública de OpenFreeMap, con datos de OpenStreetMap. Las atribuciones cartográficas permanecen visibles en el visor.
+La interfaz acelerada usa MapLibre GL JS y la instancia pública de OpenFreeMap, con datos de OpenStreetMap. La esfera de compatibilidad usa geometría vectorial de Natural Earth distribuida por `world-atlas`. Las atribuciones cartográficas permanecen visibles en el visor acelerado.
 
 ## Estado
 
