@@ -46,7 +46,8 @@ export async function loadCatalog(): Promise<{ stations: Station[]; stats: Catal
       radio: stations.filter((station) => station.mediaType === "radio").length,
       tv: stations.filter((station) => station.mediaType === "tv").length,
       countries,
-      playable: stations.filter((station) => station.streamUrl).length
+      playable: stations.filter((station) => station.streamUrl).length,
+      mappable: stations.filter((station) => station.geoPrecision !== "country").length
     }
   };
 }

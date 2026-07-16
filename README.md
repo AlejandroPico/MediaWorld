@@ -33,13 +33,15 @@ npm run preview
 
 `npm run build:db` regenera `public/data/mediaworld.sqlite` a partir de `data/stations.json` y `data/schema.sql`.
 
-`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para España, Portugal, Andorra, Gibraltar, Francia, Bélgica, Países Bajos, Luxemburgo, Reino Unido e Irlanda. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
+`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para el conjunto de Europa, Groenlandia, Rusia, el Cáucaso y Turquía. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
 
 ## Arquitectura de datos
 
 GitHub Pages no ejecuta procesos de servidor. Por eso SQLite se distribuye como una base de datos de solo lectura y se abre localmente en el navegador. El JSON es la fuente editable y reproducible; el archivo SQLite es el artefacto de consulta. Las futuras herramientas de edición o recolección podrán generar nuevas versiones del catálogo durante la compilación.
 
 Una ficha `catalogued` confirma la inclusión enciclopédica, no la disponibilidad de una emisión. Solamente las fichas con una URL verificada o marcadas expresamente como demostración habilitan el botón de reproducción.
+
+El mapa no inventa coordenadas para completar cobertura. Las posiciones declaradas se comprueban contra las fronteras terrestres de Natural Earth; las inferencias solo se aceptan cuando el nombre de la señal contiene una localidad reconocida. Las fichas nacionales sin coordenadas fiables permanecen en la búsqueda y en SQLite, pero no generan puntos ni desplazan el visor.
 
 ## Cartografía y atribución
 

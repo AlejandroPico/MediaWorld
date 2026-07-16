@@ -1,28 +1,17 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { countries } from "./europe-countries.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cacheDirectory = process.env.RADIO_BROWSER_CACHE_DIR || "";
 const servers = ["https://de1.api.radio-browser.info", "https://at1.api.radio-browser.info", "https://fi1.api.radio-browser.info"];
 
-const countries = {
-  ES: { name: "España", bounds: [-19, 27, 5, 44.5] },
-  PT: { name: "Portugal", bounds: [-32, 30, -5.5, 43] },
-  AD: { name: "Andorra", bounds: [1.3, 42.3, 1.9, 42.8] },
-  GI: { name: "Gibraltar", bounds: [-5.5, 35.9, -5.2, 36.3] },
-  FR: { name: "Francia", bounds: [-5.5, 41, 10, 51.5] },
-  BE: { name: "Bélgica", bounds: [2.4, 49.4, 6.5, 51.7] },
-  NL: { name: "Países Bajos", bounds: [3.2, 50.7, 7.3, 53.7] },
-  LU: { name: "Luxemburgo", bounds: [5.7, 49.4, 6.6, 50.3] },
-  GB: { name: "Reino Unido", bounds: [-8.8, 49.7, 2.2, 61] },
-  IE: { name: "Irlanda", bounds: [-10.8, 51.2, -5.2, 55.6] }
-};
-
 const places = [
   ["madrid", "Madrid", 40.4168, -3.7038], ["barcelona", "Barcelona", 41.3874, 2.1686],
   ["andalucia", "Andalucía", 37.3891, -5.9845], ["sevilla", "Sevilla", 37.3891, -5.9845],
   ["malaga", "Málaga", 36.7213, -4.4214], ["granada", "Granada", 37.1773, -3.5986],
+  ["guadix", "Guadix", 37.2993, -3.1392],
   ["cordoba", "Córdoba", 37.8882, -4.7794], ["almeria", "Almería", 36.834, -2.4637],
   ["cadiz", "Cádiz", 36.5271, -6.2886], ["huelva", "Huelva", 37.2614, -6.9447],
   ["jaen", "Jaén", 37.7796, -3.7849], ["marbella", "Marbella", 36.5101, -4.8824],
@@ -80,6 +69,7 @@ const places = [
   ["strasbourg", "Estrasburgo", 48.5734, 7.7521], ["nice", "Niza", 43.7102, 7.262],
   ["rennes", "Rennes", 48.1173, -1.6778], ["montpellier", "Montpellier", 43.6108, 3.8767],
   ["ajaccio", "Ajaccio", 41.9192, 8.7386], ["corsica", "Córcega", 42.0396, 9.0129],
+  ["sardegna", "Cerdeña", 40.1209, 9.0129], ["sardinia", "Cerdeña", 40.1209, 9.0129], ["cagliari", "Cagliari", 39.2238, 9.1217],
   ["bruxelles", "Bruselas", 50.8503, 4.3517], ["brussels", "Bruselas", 50.8503, 4.3517],
   ["antwerpen", "Amberes", 51.2194, 4.4025], ["antwerp", "Amberes", 51.2194, 4.4025],
   ["gent", "Gante", 51.0543, 3.7174], ["ghent", "Gante", 51.0543, 3.7174],
@@ -99,27 +89,40 @@ const places = [
   ["limerick", "Limerick", 52.6638, -8.6267], ["waterford", "Waterford", 52.2593, -7.1101]
 ].map(([key, label, lat, lon]) => ({ key, label, lat, lon }));
 
-const fallbackAnchors = {
-  ES: places.filter((place) => ["madrid", "barcelona", "sevilla", "valencia", "zaragoza", "a coruna", "bilbao", "valladolid", "murcia", "mallorca", "tenerife", "gran canaria"].includes(place.key)),
-  PT: places.filter((place) => ["lisboa", "porto", "braga", "coimbra", "faro", "madeira", "azores"].includes(place.key)),
-  AD: places.filter((place) => place.key === "andorra"),
-  GI: places.filter((place) => place.key === "gibraltar"),
-  FR: places.filter((place) => ["paris", "lyon", "marseille", "toulouse", "bordeaux", "lille", "nantes", "strasbourg", "nice", "rennes", "montpellier", "ajaccio"].includes(place.key)),
-  BE: places.filter((place) => ["bruxelles", "antwerpen", "gent", "liege", "charleroi"].includes(place.key)),
-  NL: places.filter((place) => ["amsterdam", "rotterdam", "den haag", "utrecht", "eindhoven", "groningen", "maastricht"].includes(place.key)),
-  LU: places.filter((place) => place.key === "luxembourg"),
-  GB: places.filter((place) => ["london", "manchester", "birmingham", "glasgow", "edinburgh", "liverpool", "bristol", "leeds", "cardiff", "belfast", "newcastle"].includes(place.key)),
-  IE: places.filter((place) => ["dublin", "cork", "galway", "limerick", "waterford"].includes(place.key))
-};
-
 const normalize = (value = "") => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const hash = (value) => [...value].reduce((result, character) => Math.imul(result ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261);
-const jitter = (point, seed, radius) => {
-  const value = hash(seed);
-  const angle = (value % 3600) / 3600 * Math.PI * 2;
-  const distance = radius * (.25 + ((value >>> 12) % 750) / 1000);
-  return { lat: point.lat + Math.sin(angle) * distance, lon: point.lon + Math.cos(angle) * distance / Math.max(.35, Math.cos(point.lat * Math.PI / 180)) };
-};
+for (const country of Object.values(countries)) {
+  places.push({ key: normalize(country.capital), label: country.capital, lat: country.lat, lon: country.lon });
+}
+
+function pointInRing(lon, lat, ring) {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[previous];
+    if ((y1 > lat) !== (y2 > lat) && lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(lon, lat, polygon) {
+  return pointInRing(lon, lat, polygon[0]) && !polygon.slice(1).some((hole) => pointInRing(lon, lat, hole));
+}
+
+function pointInGeometry(lon, lat, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === "Polygon") return pointInPolygon(lon, lat, geometry.coordinates);
+  if (geometry.type === "MultiPolygon") return geometry.coordinates.some((polygon) => pointInPolygon(lon, lat, polygon));
+  return false;
+}
+
+async function loadCountryGeometries() {
+  const response = await fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson");
+  if (!response.ok) throw new Error(`No se pudieron validar las fronteras (${response.status})`);
+  const world = await response.json();
+  return new Map(world.features.map((feature) => [feature.properties.ISO_A2_EH || feature.properties.ISO_A2, feature.geometry]));
+}
+
+const countryGeometries = await loadCountryGeometries();
 
 async function fetchCountry(code) {
   if (cacheDirectory) {
@@ -131,33 +134,38 @@ async function fetchCountry(code) {
       if (response.ok) return await response.json();
     } catch { /* Prueba el siguiente espejo. */ }
   }
-  throw new Error(`No se pudo descargar el catálogo ${code}`);
+  console.warn(`Aviso: no se pudo descargar temporalmente el catálogo ${code}`);
+  return [];
 }
 
 function chooseLocation(station, code) {
   const country = countries[code];
   const lat = Number(station.geo_lat);
   const lon = Number(station.geo_long);
-  const [minLon, minLat, maxLon, maxLat] = country.bounds;
-  if (Number.isFinite(lat) && Number.isFinite(lon) && lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat) {
+  const geometry = countryGeometries.get(code);
+  const nearSmallTerritory = Math.hypot(lat - country.lat, (lon - country.lon) * Math.cos(country.lat * Math.PI / 180)) < 1.1;
+  if (Number.isFinite(lat) && Number.isFinite(lon) && (pointInGeometry(lon, lat, geometry) || (!geometry && nearSmallTerritory))) {
     return { lat, lon, label: station.state || country.name, precision: "exact" };
   }
-  const state = normalize(station.state);
   const name = normalize(station.name);
   const matched = places
-    .filter((place) => (state && (state.includes(place.key) || place.key.includes(state))) || (place.key.length >= 4 && name.includes(place.key)))
+    .filter((place) => place.key.length >= 4 && name.includes(place.key))
     .sort((a, b) => b.key.length - a.key.length)[0];
-  if (matched) return { ...jitter(matched, station.stationuuid, .055), label: matched.label, precision: state ? "region" : "city" };
-  const anchors = fallbackAnchors[code];
-  const anchor = anchors[hash(station.stationuuid) % anchors.length];
-  return { ...jitter(anchor, station.stationuuid, code === "AD" || code === "GI" ? .006 : .22), label: country.name, precision: "country" };
+  if (matched) return { lat: matched.lat, lon: matched.lon, label: matched.label, precision: "city" };
+  return { lat: country.lat, lon: country.lon, label: country.name, precision: "country" };
 }
 
 function score(station) {
   return Number(station.lastcheckok) * 100000 + (station.geo_lat != null ? 20000 : 0) + Number(station.votes || 0) * 10 + Number(station.bitrate || 0);
 }
 
-const raw = (await Promise.all(Object.keys(countries).map(async (code) => (await fetchCountry(code)).map((station) => ({ ...station, requestedCode: code }))))).flat();
+const raw = [];
+const countryCodes = Object.keys(countries);
+for (let offset = 0; offset < countryCodes.length; offset += 6) {
+  const batch = countryCodes.slice(offset, offset + 6);
+  const results = await Promise.all(batch.map(async (code) => (await fetchCountry(code)).map((station) => ({ ...station, requestedCode: code }))));
+  raw.push(...results.flat());
+}
 const unique = new Map();
 for (const station of raw) {
   if (!Number(station.lastcheckok) || !station.name || !(station.url_resolved || station.url)) continue;
@@ -176,7 +184,7 @@ const output = [...unique.values()].sort((a, b) => a.requestedCode.localeCompare
   const codec = String(station.codec || "").toLowerCase();
   const tags = String(station.tags || "");
   const scope = /\bfm\b|\bam\b|\bfm\d|\d\s*fm/i.test(`${station.name} ${tags}`) ? "FM / Online" : "Online";
-  const precisionText = { exact: "coordenadas declaradas", city: "localidad inferida", region: "ubicación regional", country: "ubicación nacional aproximada" }[location.precision];
+  const precisionText = { exact: "coordenadas declaradas y validadas en tierra", city: "localidad inferida del nombre", region: "ubicación regional", country: "sin coordenadas precisas; no se muestra en el mapa" }[location.precision];
   return {
     id: index + 1,
     name: String(station.name).trim(),

@@ -6,5 +6,5 @@
   "display": "standalone",
   "background_color": "#07111e",
   "theme_color": "#07111e",
-  "icons": [{"src":"favicon.svg","sizes":"any","type":"image/svg+xml"}]
+  "icons": [{"src":"mediaworld-favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
 }

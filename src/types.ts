@@ -30,4 +30,5 @@ export interface CatalogStats {
   tv: number;
   countries: number;
   playable: number;
+  mappable: number;
 }

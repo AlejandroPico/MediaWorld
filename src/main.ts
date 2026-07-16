@@ -167,6 +167,8 @@ const stationToFeature = (station: Station): GeoJSON.Feature<GeoJSON.Point> => (
   properties: { id: station.id, mediaType: station.mediaType, name: station.name, geoPrecision: station.geoPrecision }
 });
 
+const isMappable = (station: Station): boolean => station.geoPrecision !== "country";
+
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
@@ -192,14 +194,14 @@ function visibleStations(items: Station[]): Station[] {
   if (searchInput.value.trim()) return items;
   if (!map || !mapReady) return items;
   const bounds = map.getBounds();
-  const visible = items.filter((station) => bounds.contains([station.longitude, station.latitude]));
-  return visible.length ? visible : items;
+  const visible = items.filter((station) => isMappable(station) && bounds.contains([station.longitude, station.latitude]));
+  return visible;
 }
 
 function updateMapData(items: Station[]): void {
   if (!map) return;
   const source = map.getSource("stations") as GeoJSONSource | undefined;
-  source?.setData({ type: "FeatureCollection", features: items.map(stationToFeature) });
+  source?.setData({ type: "FeatureCollection", features: items.filter(isMappable).map(stationToFeature) });
 }
 
 function renderList(): void {
@@ -240,7 +242,7 @@ function showStation(station: Station, fly = false): void {
   playButton.title = station.streamUrl ? "Reproducir" : "Esta ficha todavía no tiene emisión verificada";
   livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
   stopMedia();
-  if (fly && map) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
+  if (fly && map && isMappable(station)) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
   renderList();
 }
 
@@ -347,7 +349,7 @@ function installStationLayers(): void {
   if (!activeMap || !mapReady || activeMap.getSource("stations")) return;
   activeMap.addSource("stations", {
     type: "geojson",
-    data: { type: "FeatureCollection", features: filteredStations().map(stationToFeature) },
+    data: { type: "FeatureCollection", features: filteredStations().filter(isMappable).map(stationToFeature) },
     cluster: false
   });
   activeMap.addLayer({
@@ -498,7 +500,7 @@ function showStats(stats: CatalogStats): void {
   byId("all-count").textContent = String(stats.total);
   byId("radio-count").textContent = String(stats.radio);
   byId("tv-count").textContent = String(stats.tv);
-  byId("catalog-status").innerHTML = `<span class="pulse"></span> ${stats.countries} países · ${stats.playable} señales listas`;
+  byId("catalog-status").innerHTML = `<span class="pulse"></span> ${stats.countries} países · ${stats.mappable} ubicadas · ${stats.playable} listas`;
 }
 
 if (localStorage.getItem("mediaworld-theme") === "light") {

@@ -1,12 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tvCountries } from "./europe-countries.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const api = "https://iptv-org.github.io/api";
 
-const countries = {
-  ES: { name: "España", anchors: [["Madrid", 40.4168, -3.7038], ["Barcelona", 41.3874, 2.1686], ["Sevilla", 37.3891, -5.9845], ["València", 39.4699, -0.3763], ["Palma", 39.5696, 2.6502], ["Tenerife", 28.4636, -16.2518]] },
+const detailedCountries = {
+  ES: { name: "España", anchors: [["Madrid", 40.4168, -3.7038], ["Barcelona", 41.3874, 2.1686], ["Sevilla", 37.3891, -5.9845], ["València", 39.4699, -0.3763], ["Palma", 39.5696, 2.6502], ["Tenerife", 28.4636, -16.2518], ["Extremadura", 39.1748, -6.1527], ["Aragón", 41.5976, -0.9057]] },
   PT: { name: "Portugal", anchors: [["Lisboa", 38.7223, -9.1393], ["Porto", 41.1579, -8.6291], ["Coimbra", 40.2033, -8.4103], ["Faro", 37.0194, -7.9304], ["Funchal", 32.6669, -16.9241]] },
   AD: { name: "Andorra", anchors: [["Andorra", 42.5063, 1.5218]] },
   GI: { name: "Gibraltar", anchors: [["Gibraltar", 36.1408, -5.3536]] },
@@ -18,8 +19,14 @@ const countries = {
   IE: { name: "Irlanda", anchors: [["Dublín", 53.3498, -6.2603], ["Cork", 51.8985, -8.4756], ["Galway", 53.2707, -9.0568], ["Limerick", 52.6638, -8.6267]] }
 };
 
+const countries = Object.fromEntries(Object.entries(tvCountries).map(([code, country]) => [code, {
+  ...country,
+  ...(detailedCountries[code] || {}),
+  anchors: detailedCountries[code]?.anchors || [[country.capital, country.lat, country.lon]]
+}]));
+
 const cityAliases = [
-  ["madrid", "Madrid"], ["barcelona", "Barcelona"], ["sevilla", "Sevilla"], ["valencia", "València"], ["palma", "Palma"], ["tenerife", "Tenerife"],
+  ["madrid", "Madrid"], ["barcelona", "Barcelona"], ["sevilla", "Sevilla"], ["valencia", "València"], ["palma", "Palma"], ["tenerife", "Tenerife"], ["extremadura", "Extremadura"], ["aragon", "Aragón"],
   ["lisboa", "Lisboa"], ["lisbon", "Lisboa"], ["porto", "Porto"], ["coimbra", "Coimbra"], ["faro", "Faro"], ["funchal", "Funchal"],
   ["paris", "París"], ["lyon", "Lyon"], ["marseille", "Marsella"], ["toulouse", "Toulouse"], ["bordeaux", "Burdeos"], ["lille", "Lille"], ["nantes", "Nantes"], ["strasbourg", "Estrasburgo"],
   ["bruxelles", "Bruselas"], ["brussels", "Bruselas"], ["antwerpen", "Amberes"], ["antwerp", "Amberes"], ["gent", "Gante"], ["ghent", "Gante"], ["liege", "Lieja"],
@@ -29,16 +36,7 @@ const cityAliases = [
 ];
 
 const normalize = (value = "") => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const hash = (value) => [...value].reduce((result, character) => Math.imul(result ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261);
-const jitter = (anchor, seed, radius) => {
-  const value = hash(seed);
-  const angle = (value % 3600) / 3600 * Math.PI * 2;
-  const distance = radius * (.25 + ((value >>> 12) % 750) / 1000);
-  return {
-    lat: anchor[1] + Math.sin(angle) * distance,
-    lon: anchor[2] + Math.cos(angle) * distance / Math.max(.35, Math.cos(anchor[1] * Math.PI / 180))
-  };
-};
+cityAliases.push(...Object.values(countries).map((country) => [normalize(country.capital), country.capital]));
 
 async function getJson(name) {
   const response = await fetch(`${api}/${name}.json`, { headers: { "User-Agent": "MediaWorld/0.3 catalog builder" } });
@@ -71,10 +69,9 @@ function locate(channel) {
   const matched = cityAliases.find(([alias]) => name.includes(alias));
   if (matched) {
     const anchor = country.anchors.find(([label]) => normalize(label) === normalize(matched[1]));
-    if (anchor) return { ...jitter(anchor, channel.id, .035), city: anchor[0], precision: "city" };
+    if (anchor) return { lat: anchor[1], lon: anchor[2], city: anchor[0], precision: "city" };
   }
-  const anchor = country.anchors[hash(channel.id) % country.anchors.length];
-  return { ...jitter(anchor, channel.id, country.anchors.length === 1 ? .01 : .2), city: country.name, precision: "country" };
+  return { lat: country.lat, lon: country.lon, city: country.name, precision: "country" };
 }
 
 const output = allChannels
@@ -99,7 +96,7 @@ const output = allChannels
       longitude: Number(location.lon.toFixed(6)),
       language: (feed?.languages || []).join(", ") || "Sin especificar",
       scope: location.precision === "city" ? "Local / regional" : "Nacional / internacional",
-      description: `Canal catalogado por IPTV-org${chosen?.quality ? ` · ${chosen.quality}` : ""}. ${location.precision === "city" ? "Localidad inferida del nombre" : "Ubicación nacional aproximada"}.`,
+      description: `Canal catalogado por IPTV-org${chosen?.quality ? ` · ${chosen.quality}` : ""}. ${location.precision === "city" ? "Localidad inferida del nombre" : "Sin coordenadas precisas; no se muestra en el mapa"}.`,
       websiteUrl: String(channel.website || ""),
       streamUrl,
       streamFormat: /\.m3u8(?:$|\?)/i.test(streamUrl) ? "hls" : "video",
