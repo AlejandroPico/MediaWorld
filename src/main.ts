@@ -3,7 +3,6 @@ import "./styles.css";
 import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
 import Hls from "hls.js";
 import { loadCatalog } from "./db";
-import { CanvasGlobe } from "./canvasGlobe";
 import type { CatalogStats, MediaType, Station } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -118,48 +117,39 @@ let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
 
-let map: maplibregl.Map | null = null;
-let canvasGlobe: CanvasGlobe | null = null;
-const showMapFallback = (): void => {
-  const container = byId("map");
-  container.innerHTML = `<div class="canvas-globe" id="canvas-globe"></div>`;
-  canvasGlobe = new CanvasGlobe(byId("canvas-globe"), (station) => showStation(station));
-  document.documentElement.classList.add("no-webgl");
-};
-const supportsWebGL = (): boolean => {
-  try {
-    const canvas = document.createElement("canvas");
-    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
-  } catch { return false; }
-};
-if (supportsWebGL()) {
-  try {
-    map = new maplibregl.Map({
-      container: "map",
-      style: "https://tiles.openfreemap.org/styles/liberty",
-      center: [8, 25],
-      zoom: 1.55,
-      minZoom: 1.15,
-      maxZoom: 19,
-      pitch: 0,
-      attributionControl: false,
-      renderWorldCopies: false
-    });
-    map.setProjection({ type: "globe" });
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-  } catch { showMapFallback(); }
-} else {
-  showMapFallback();
-}
+const SATELLITE_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const TERRAIN_TILEJSON = "https://tiles.mapterhorn.com/tilejson.json";
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://tiles.openfreemap.org/styles/liberty",
+  center: [-3, 28],
+  zoom: 1.35,
+  minZoom: 1,
+  maxZoom: 19,
+  pitch: 0,
+  attributionControl: false,
+  renderWorldCopies: false,
+  maxPitch: 70
+});
+map.setProjection({ type: "globe" });
+map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 
 const stationToFeature = (station: Station): GeoJSON.Feature<GeoJSON.Point> => ({
   type: "Feature",
   geometry: { type: "Point", coordinates: [station.longitude, station.latitude] },
-  properties: { id: station.id, mediaType: station.mediaType, name: station.name }
+  properties: { id: station.id, mediaType: station.mediaType, name: station.name, geoPrecision: station.geoPrecision }
 });
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] || character);
+}
+
+function safeUrl(value: string): string {
+  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) ? url.href : "#"; } catch { return "#"; }
 }
 
 function filteredStations(): Station[] {
@@ -173,16 +163,14 @@ function filteredStations(): Station[] {
 
 function visibleStations(items: Station[]): Station[] {
   if (searchInput.value.trim()) return items;
-  if (!map) return items;
   const bounds = map.getBounds();
   const visible = items.filter((station) => bounds.contains([station.longitude, station.latitude]));
   return visible.length ? visible : items;
 }
 
 function updateMapData(items: Station[]): void {
-  const source = map?.getSource("stations") as GeoJSONSource | undefined;
+  const source = map.getSource("stations") as GeoJSONSource | undefined;
   source?.setData({ type: "FeatureCollection", features: items.map(stationToFeature) });
-  canvasGlobe?.setStations(items);
 }
 
 function renderList(): void {
@@ -193,7 +181,7 @@ function renderList(): void {
   stationList.innerHTML = items.length ? items.map((station) => `
     <button class="station-row ${selected?.id === station.id ? "is-selected" : ""}" data-station-id="${station.id}">
       <span class="station-row__icon ${station.mediaType}">${station.mediaType === "radio" ? "◉" : "▣"}</span>
-      <span><strong>${station.name}</strong><small>${station.city} · ${station.country}</small></span>
+      <span><strong>${escapeHtml(station.name)}</strong><small>${escapeHtml(station.city)} · ${escapeHtml(station.country)}</small></span>
       <i class="${station.streamUrl ? "available" : "catalogued"}" title="${station.streamUrl ? "Emisión disponible" : "Ficha catalogada"}"></i>
     </button>`).join("") : `<div class="empty-state"><span>◎</span><strong>Sin señales aquí</strong><p>Prueba otra búsqueda o aléjate en el mapa.</p></div>`;
   updateMapData(filtered);
@@ -205,12 +193,12 @@ function showStation(station: Station, fly = false): void {
   stationCard.hidden = false;
   stationCard.innerHTML = `
     <button class="station-card__close" id="station-card-close" aria-label="Cerrar">×</button>
-    <div class="station-card__head"><span class="station-logo ${station.mediaType}">${initials(station.name)}</span><div><small>${station.mediaType === "radio" ? "RADIO" : "TELEVISIÓN"} · ${station.scope.toUpperCase()}</small><h2>${station.name}</h2><p>${station.city}, ${station.region} · ${station.country}</p></div></div>
-    <p class="station-card__description">${station.description}</p>
-    <div class="station-card__meta"><span><small>IDIOMA</small>${station.language}</span><span><small>ESTADO</small>${station.streamUrl ? "Emisión disponible" : "Catalogada"}</span></div>
+    <div class="station-card__head"><span class="station-logo ${station.mediaType}">${escapeHtml(initials(station.name))}</span><div><small>${station.mediaType === "radio" ? "RADIO" : "TELEVISIÓN"} · ${escapeHtml(station.scope.toUpperCase())}</small><h2>${escapeHtml(station.name)}</h2><p>${escapeHtml(station.city)}, ${escapeHtml(station.region)} · ${escapeHtml(station.country)}</p></div></div>
+    <p class="station-card__description">${escapeHtml(station.description)}</p>
+    <div class="station-card__meta"><span><small>IDIOMA</small>${escapeHtml(station.language)}</span><span><small>ESTADO</small>${station.streamUrl ? "Emisión disponible" : "Catalogada"}</span></div>
     <div class="station-card__actions">
       <button class="primary-action" id="card-play" ${station.streamUrl ? "" : "disabled"}>${station.streamUrl ? "▶ Reproducir" : "Emisión pendiente"}</button>
-      <a href="${station.websiteUrl}" target="_blank" rel="noreferrer" title="Abrir sitio oficial">↗</a>
+      <a href="${safeUrl(station.websiteUrl)}" target="_blank" rel="noreferrer" title="Abrir sitio oficial">↗</a>
     </div>`;
   byId("station-card-close").addEventListener("click", () => { stationCard.hidden = true; });
   byId<HTMLButtonElement>("card-play").addEventListener("click", () => void startPlayback());
@@ -223,8 +211,7 @@ function showStation(station: Station, fly = false): void {
   playButton.title = station.streamUrl ? "Reproducir" : "Esta ficha todavía no tiene emisión verificada";
   livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
   stopMedia();
-  if (fly && map) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 6), duration: 1400 });
-  if (fly && canvasGlobe) canvasGlobe.flyTo(station);
+  if (fly) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
   renderList();
 }
 
@@ -274,10 +261,38 @@ function selectRelative(direction: number): void {
 function applyTheme(): void {
   const isLight = document.documentElement.classList.toggle("light-theme");
   localStorage.setItem("mediaworld-theme", isLight ? "light" : "dark");
-  canvasGlobe?.setLight(isLight);
-  if (!map) return;
-  map.setStyle(isLight ? "https://tiles.openfreemap.org/styles/positron" : "https://tiles.openfreemap.org/styles/liberty");
-  map.once("style.load", installStationLayers);
+}
+
+function installSatelliteGlobe(): void {
+  if (!map.getSource("satellite")) {
+    map.addSource("satellite", {
+      type: "raster",
+      tiles: [SATELLITE_TILES],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 19,
+      attribution: "Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"
+    });
+  }
+  const firstLabel = map.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
+  if (!map.getLayer("satellite-world")) {
+    map.addLayer({
+      id: "satellite-world",
+      type: "raster",
+      source: "satellite",
+      minzoom: 0,
+      maxzoom: 24,
+      paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 80, "raster-contrast": 0.04, "raster-saturation": 0.02 }
+    }, firstLabel);
+  }
+  for (const layer of map.getStyle().layers) {
+    if (layer.type !== "symbol") continue;
+    if (/(road|highway|motorway|transport|transit|poi|housenumber|airport|aeroway)/i.test(layer.id)) {
+      map.setLayoutProperty(layer.id, "visibility", "none");
+    }
+  }
+  if (!map.getSource("terrain-dem")) map.addSource("terrain-dem", { type: "raster-dem", url: TERRAIN_TILEJSON });
+  try { map.setTerrain({ source: "terrain-dem", exaggeration: 1.08 }); } catch { /* El satélite sigue operativo sin relieve. */ }
 }
 
 function installStationLayers(): void {
@@ -286,36 +301,49 @@ function installStationLayers(): void {
   activeMap.addSource("stations", {
     type: "geojson",
     data: { type: "FeatureCollection", features: filteredStations().map(stationToFeature) },
-    cluster: true,
-    clusterMaxZoom: 11,
-    clusterRadius: 42
+    cluster: false
   });
-  activeMap.addLayer({ id: "station-clusters-halo", type: "circle", source: "stations", filter: ["has", "point_count"], paint: { "circle-color": "rgba(8,18,31,.7)", "circle-radius": ["step", ["get", "point_count"], 20, 10, 26, 30, 34], "circle-stroke-color": "rgba(255,255,255,.38)", "circle-stroke-width": 1 } });
-  activeMap.addLayer({ id: "station-clusters", type: "symbol", source: "stations", filter: ["has", "point_count"], layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 12 }, paint: { "text-color": "#ffffff" } });
-  activeMap.addLayer({ id: "station-points", type: "circle", source: "stations", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 5, 8, 8, 14, 11], "circle-color": ["match", ["get", "mediaType"], "radio", "#23d6c7", "#ff668f"], "circle-stroke-color": "rgba(5,14,25,.9)", "circle-stroke-width": 2, "circle-opacity": 0.95 } });
-  activeMap.addLayer({ id: "station-labels", type: "symbol", source: "stations", minzoom: 5.5, filter: ["!", ["has", "point_count"]], layout: { "text-field": ["get", "name"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-optional": true }, paint: { "text-color": "#ffffff", "text-halo-color": "rgba(4,12,22,.9)", "text-halo-width": 1.5 } });
+  activeMap.addLayer({
+    id: "station-points",
+    type: "circle",
+    source: "stations",
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 1.35, 4, 1.8, 8, 2.8, 12, 4.6, 18, 6.2],
+      "circle-color": ["match", ["get", "mediaType"], "radio", "#20e3cf", "#ff5f8d"],
+      "circle-stroke-color": "rgba(2,7,13,.92)",
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 1, 0.35, 10, 1.2],
+      "circle-opacity": ["match", ["get", "geoPrecision"], "country", 0.48, 0.92]
+    }
+  });
+  activeMap.addLayer({
+    id: "station-labels",
+    type: "symbol",
+    source: "stations",
+    minzoom: 11,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 16, 12],
+      "text-offset": [0, 1.15],
+      "text-anchor": "top",
+      "text-optional": true,
+      "text-allow-overlap": false
+    },
+    paint: { "text-color": "#ffffff", "text-halo-color": "rgba(2,7,13,.95)", "text-halo-width": 1.7 }
+  });
   renderList();
 }
 
-if (map) {
+{
   const activeMap = map;
-  activeMap.on("load", installStationLayers);
+  activeMap.on("load", () => { installSatelliteGlobe(); installStationLayers(); });
   activeMap.on("moveend", renderList);
   activeMap.on("click", "station-points", (event: MapLayerMouseEvent) => {
     const id = Number(event.features?.[0]?.properties?.id);
     const station = stations.find((item) => item.id === id);
     if (station) showStation(station);
   });
-  activeMap.on("click", "station-clusters-halo", (event: MapLayerMouseEvent) => {
-    const feature = activeMap.queryRenderedFeatures(event.point, { layers: ["station-clusters-halo"] })[0];
-    const clusterId = Number(feature?.properties?.cluster_id);
-    const source = activeMap.getSource("stations") as GeoJSONSource;
-    void source.getClusterExpansionZoom(clusterId).then((zoom) => activeMap.easeTo({ center: (feature.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
-  });
-  for (const layer of ["station-points", "station-clusters-halo"]) {
-    activeMap.on("mouseenter", layer, () => { activeMap.getCanvas().style.cursor = "pointer"; });
-    activeMap.on("mouseleave", layer, () => { activeMap.getCanvas().style.cursor = ""; });
-  }
+  activeMap.on("mouseenter", "station-points", () => { activeMap.getCanvas().style.cursor = "pointer"; });
+  activeMap.on("mouseleave", "station-points", () => { activeMap.getCanvas().style.cursor = ""; });
 }
 
 stationList.addEventListener("click", (event) => {
@@ -342,14 +370,14 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
   document.querySelector<HTMLButtonElement>('[data-type="tv"]')?.classList.toggle("is-active", enabledTypes.has("tv"));
   renderList();
 }));
-byId("home-button").addEventListener("click", () => { map?.flyTo({ center: [8, 25], zoom: 1.55, pitch: 0, bearing: 0 }); canvasGlobe?.home(); });
+byId("home-button").addEventListener("click", () => map.flyTo({ center: [-3, 28], zoom: 1.35, pitch: 0, bearing: 0 }));
 byId("reset-button").addEventListener("click", () => { searchInput.value = ""; enabledTypes = new Set(["radio", "tv"]); document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active")); renderList(); });
-byId("zoom-in").addEventListener("click", () => { map?.zoomIn(); canvasGlobe?.zoomIn(); });
-byId("zoom-out").addEventListener("click", () => { map?.zoomOut(); canvasGlobe?.zoomOut(); });
-byId("reset-bearing").addEventListener("click", () => { map?.easeTo({ bearing: 0, pitch: 0 }); canvasGlobe?.north(); });
+byId("zoom-in").addEventListener("click", () => map.zoomIn());
+byId("zoom-out").addEventListener("click", () => map.zoomOut());
+byId("reset-bearing").addEventListener("click", () => map.easeTo({ bearing: 0, pitch: 0 }));
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
-byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map?.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 10 })));
+byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 14, pitch: 45 })));
 playButton.addEventListener("click", () => void startPlayback());
 byId("previous-button").addEventListener("click", () => selectRelative(-1));
 byId("next-button").addEventListener("click", () => selectRelative(1));
@@ -364,7 +392,7 @@ async function boot(): Promise<void> {
     const catalog = await loadCatalog();
     stations = catalog.stations;
     showStats(catalog.stats);
-    if (map?.loaded()) installStationLayers();
+    if (map.loaded()) installStationLayers();
     renderList();
   } catch (error) {
     byId("catalog-status").innerHTML = `<span class="error-dot"></span> Catálogo no disponible`;

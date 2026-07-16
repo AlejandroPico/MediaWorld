@@ -4,11 +4,18 @@ import { fileURLToPath } from "node:url";
 import initSqlJs from "sql.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const [schema, source] = await Promise.all([
+const [schema, source, iberianSource] = await Promise.all([
   readFile(path.join(root, "data/schema.sql"), "utf8"),
-  readFile(path.join(root, "data/stations.json"), "utf8")
+  readFile(path.join(root, "data/stations.json"), "utf8"),
+  readFile(path.join(root, "data/iberian-radio.json"), "utf8").catch(() => "[]")
 ]);
-const stations = JSON.parse(source);
+const editorialStations = JSON.parse(source);
+const iberianStations = JSON.parse(iberianSource);
+const replacedCountries = new Set(["España", "Portugal", "Andorra", "Gibraltar"]);
+const stations = [
+  ...editorialStations.filter((station) => station.mediaType !== "radio" || !replacedCountries.has(station.country)),
+  ...iberianStations
+].map((station, index) => ({ ...station, id: index + 1 }));
 const SQL = await initSqlJs();
 const database = new SQL.Database();
 database.run(schema);
@@ -16,15 +23,18 @@ database.run(schema);
 const insert = database.prepare(`
   INSERT INTO stations (
     id, name, media_type, city, region, country, latitude, longitude, language,
-    scope, description, website_url, stream_url, stream_format, status, verified_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    scope, description, website_url, stream_url, stream_format, status, verified_at,
+    external_id, country_code, geo_precision, favicon_url, tags
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 for (const station of stations) {
   insert.run([
     station.id, station.name, station.mediaType, station.city, station.region,
     station.country, station.latitude, station.longitude, station.language,
     station.scope, station.description, station.websiteUrl, station.streamUrl,
-    station.streamFormat, station.status, station.verifiedAt
+    station.streamFormat, station.status, station.verifiedAt,
+    station.externalId || "", station.countryCode || "", station.geoPrecision || "exact",
+    station.faviconUrl || "", station.tags || ""
   ]);
 }
 insert.free();

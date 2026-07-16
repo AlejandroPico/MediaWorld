@@ -18,7 +18,12 @@ const mapRow = (row: Record<string, unknown>): Station => ({
   streamUrl: String(row.stream_url),
   streamFormat: String(row.stream_format),
   status: String(row.status) as Station["status"],
-  verifiedAt: String(row.verified_at)
+  verifiedAt: String(row.verified_at),
+  externalId: String(row.external_id ?? ""),
+  countryCode: String(row.country_code ?? ""),
+  geoPrecision: String(row.geo_precision ?? "exact") as Station["geoPrecision"],
+  faviconUrl: String(row.favicon_url ?? ""),
+  tags: String(row.tags ?? "")
 });
 
 export async function loadCatalog(): Promise<{ stations: Station[]; stats: CatalogStats }> {

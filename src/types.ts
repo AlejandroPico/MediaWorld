@@ -17,6 +17,11 @@ export interface Station {
   streamFormat: string;
   status: "verified" | "catalogued" | "demo";
   verifiedAt: string;
+  externalId: string;
+  countryCode: string;
+  geoPrecision: "exact" | "city" | "region" | "country";
+  faviconUrl: string;
+  tags: string;
 }
 
 export interface CatalogStats {
