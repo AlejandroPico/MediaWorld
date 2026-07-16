@@ -5,7 +5,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 ## Primera versión
 
 - Globo vectorial 3D con zoom, etiquetas cartográficas progresivas y controles táctiles.
-- Esfera geográfica Canvas 2D completa para navegadores o equipos sin WebGL: continentes, rotación, zoom y rótulos por nivel.
+- Esfera geográfica Canvas 2D completa para navegadores o equipos sin WebGL: continentes, rotación, zoom y rótulos progresivos de país, región, ciudad y emisora.
 - Catálogo geolocalizado de radio y televisión con agrupación de señales.
 - Búsqueda por emisora, ciudad, región, país o idioma.
 - Filtros independientes para radio y televisión.
