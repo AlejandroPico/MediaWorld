@@ -28,6 +28,9 @@ app.innerHTML = `
       <button class="dock-button is-active" id="player-toggle" aria-label="Ocultar reproductor" aria-pressed="true" title="Reproductor">
         ${icon('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3V9Z"/>')}
       </button>
+      <button class="dock-button" id="discover-button" aria-label="Descubrir una señal" title="Descubrir una señal">
+        ${icon('<circle cx="12" cy="12" r="9"/><path d="m15.7 8.3-2.1 5.3-5.3 2.1 2.1-5.3 5.3-2.1Z"/><circle cx="12" cy="12" r="1"/>')}
+      </button>
       <button class="dock-button" id="catalog-toggle" aria-label="Abrir catálogo completo" aria-pressed="false" title="Catálogo completo">
         ${icon('<path d="M4 5h4v4H4V5ZM4 15h4v4H4v-4ZM11 6h9M11 17h9"/>')}
       </button>
@@ -103,7 +106,7 @@ app.innerHTML = `
     <footer class="player glass" id="player">
       <div class="now-playing">
         <div class="station-logo is-empty" id="player-logo">MW</div>
-        <div><small id="player-kicker">NINGUNA SEÑAL SELECCIONADA</small><strong id="player-title">Explora el mundo para empezar</strong><span id="player-place">La reproducción siempre es manual</span></div>
+        <div class="now-playing__copy" id="player-copy"><small id="player-kicker">Ninguna señal seleccionada</small><strong id="player-title" hidden></strong><span id="player-place">La reproducción siempre es manual</span></div>
       </div>
       <div class="transport">
         <button id="previous-button" aria-label="Anterior">‹</button>
@@ -140,6 +143,7 @@ const playerLogo = byId<HTMLElement>("player-logo");
 const playerTitle = byId<HTMLElement>("player-title");
 const playerPlace = byId<HTMLElement>("player-place");
 const playerKicker = byId<HTMLElement>("player-kicker");
+const playerCopy = byId<HTMLElement>("player-copy");
 const countryFilter = byId<HTMLSelectElement>("country-filter");
 const regionFilter = byId<HTMLSelectElement>("region-filter");
 const availabilityFilter = byId<HTMLSelectElement>("availability-filter");
@@ -149,9 +153,13 @@ const labelsToggle = byId<HTMLInputElement>("labels-toggle");
 let stations: Station[] = [];
 let selected: Station | null = null;
 let selectedIndex = -1;
+let playingStation: Station | null = null;
 let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
+type StreamHealth = "catalogued" | "available" | "connecting" | "live" | "unstable" | "offline";
+const streamHealth = new Map<number, StreamHealth>();
+const currentProgrammes = new Map<number, string>();
 let playerVisible = true;
 let currentView: "map" | "catalog" = "map";
 const CATALOG_BATCH_SIZE = 360;
@@ -230,6 +238,80 @@ function updateMapData(items: Station[]): void {
   source?.setData({ type: "FeatureCollection", features: items.filter(isMappable).map(stationToFeature) });
 }
 
+const healthDetails: Record<StreamHealth, { label: string; className: string }> = {
+  catalogued: { label: "Solo ficha", className: "is-catalogued" },
+  available: { label: "Disponible", className: "is-available" },
+  connecting: { label: "Conectando", className: "is-connecting" },
+  live: { label: "En emisión", className: "is-live" },
+  unstable: { label: "Inestable", className: "is-unstable" },
+  offline: { label: "Sin respuesta", className: "is-offline" }
+};
+
+function healthFor(station: Station): StreamHealth {
+  return streamHealth.get(station.id) ?? (station.streamUrl ? "available" : "catalogued");
+}
+
+function programmeFor(station: Station): string {
+  return currentProgrammes.get(station.id) ?? "";
+}
+
+function healthMarkup(station: Station): string {
+  const details = healthDetails[healthFor(station)];
+  return `<small class="catalog-card__health ${details.className}" data-health-station="${station.id}">${details.label}</small>`;
+}
+
+function updateHealth(station: Station, health: StreamHealth): void {
+  streamHealth.set(station.id, health);
+  const details = healthDetails[health];
+  document.querySelectorAll<HTMLElement>(`[data-health-station="${station.id}"]`).forEach((element) => {
+    element.className = `catalog-card__health ${details.className}`;
+    element.textContent = details.label;
+  });
+  const cardHealth = document.querySelector<HTMLElement>(`#card-health[data-station-id="${station.id}"]`);
+  if (cardHealth) {
+    cardHealth.className = `station-health ${details.className}`;
+    cardHealth.textContent = details.label;
+  }
+  if (playingStation?.id === station.id) {
+    livePill.textContent = details.label.toUpperCase();
+    livePill.className = `live-pill ${details.className}`;
+  }
+}
+
+function updateProgramme(station: Station, programme: string): void {
+  const clean = programme.replace(/\s+/g, " ").trim().slice(0, 180);
+  if (!clean || currentProgrammes.get(station.id) === clean) return;
+  currentProgrammes.set(station.id, clean);
+  document.querySelectorAll<HTMLElement>(`[data-programme-station="${station.id}"]`).forEach((element) => {
+    element.textContent = clean;
+    element.classList.add("has-value");
+  });
+  if (playingStation?.id === station.id) updatePlayerStation(station);
+  if (selected?.id === station.id) {
+    const programmeElement = document.querySelector<HTMLElement>("#station-programme");
+    if (programmeElement) {
+      programmeElement.hidden = false;
+      programmeElement.querySelector("strong")!.textContent = clean;
+    }
+  }
+}
+
+function updatePlayerStation(station: Station): void {
+  const programme = programmeFor(station);
+  const details = healthDetails[healthFor(station)];
+  playerLogo.textContent = initials(station.name);
+  playerLogo.className = `station-logo ${station.mediaType}`;
+  playerKicker.textContent = station.name;
+  playerTitle.textContent = programme;
+  playerTitle.hidden = !programme;
+  playerPlace.textContent = [station.city, station.country].filter(Boolean).join(" · ");
+  playerCopy.classList.toggle("has-programme", Boolean(programme));
+  playButton.disabled = !station.streamUrl;
+  playButton.title = station.streamUrl ? (isPlaying ? "Pausar" : "Reproducir") : "Esta ficha todavía no tiene emisión verificada";
+  livePill.textContent = details.label.toUpperCase();
+  livePill.className = `live-pill ${details.className}`;
+}
+
 function stationCardMarkup(station: Station): string {
   const imageUrl = safeUrl(station.faviconUrl);
   const logo = imageUrl !== "#"
@@ -237,13 +319,14 @@ function stationCardMarkup(station: Station): string {
     : `<span>${escapeHtml(initials(station.name))}</span>`;
   const tags = station.tags.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 3);
   const tag = tags[0] || (isMappable(station) ? "Geolocalizada" : "Sin coordenadas");
+  const programme = programmeFor(station);
   return `
-    <button class="catalog-card ${selected?.id === station.id ? "is-selected" : ""}" data-station-id="${station.id}">
+    <button class="catalog-card ${station.mediaType} ${selected?.id === station.id ? "is-selected" : ""}" data-station-id="${station.id}">
       <span class="catalog-logo ${station.mediaType}">${logo}</span>
       <span class="catalog-card__content">
-        <span class="catalog-card__meta"><i class="catalog-type ${station.mediaType}">${station.mediaType === "radio" ? "RADIO" : "TV"}</i><small class="catalog-card__status ${station.streamUrl ? "is-playable" : ""}">${station.streamUrl ? "Emisión disponible" : "Ficha catalogada"}</small></span>
-        <strong>${escapeHtml(station.name)}</strong>
-        <span class="catalog-card__foot"><small>${escapeHtml(station.country)}</small><i>${escapeHtml(tag)}</i></span>
+        <span class="catalog-card__head"><strong>${escapeHtml(station.name)}</strong><i class="catalog-type ${station.mediaType}">${station.mediaType === "radio" ? "RADIO" : "TV"}</i></span>
+        <span class="catalog-card__programme ${programme ? "has-value" : ""}" data-programme-station="${station.id}">${escapeHtml(programme || tag)}</span>
+        <span class="catalog-card__foot"><small>${escapeHtml(station.country)}</small>${healthMarkup(station)}</span>
       </span>
     </button>`;
 }
@@ -285,63 +368,157 @@ function updateRegionFilter(): void {
 function showStation(station: Station, fly = false): void {
   selected = station;
   selectedIndex = stations.findIndex((item) => item.id === station.id);
+  const programme = programmeFor(station);
+  const health = healthDetails[healthFor(station)];
+  const isThisPlaying = playingStation?.id === station.id && isPlaying;
   stationCard.hidden = false;
   stationCard.innerHTML = `
     <button class="station-card__close" id="station-card-close" aria-label="Cerrar">×</button>
     <div class="station-card__head"><span class="station-logo ${station.mediaType}">${escapeHtml(initials(station.name))}</span><div><small>${station.mediaType === "radio" ? "RADIO" : "TELEVISIÓN"} · ${escapeHtml(station.scope.toUpperCase())}</small><h2>${escapeHtml(station.name)}</h2><p>${escapeHtml(station.city)}, ${escapeHtml(station.region)} · ${escapeHtml(station.country)}</p></div></div>
     <p class="station-card__description">${escapeHtml(station.description)}</p>
-    <div class="station-card__meta"><span><small>IDIOMA</small>${escapeHtml(station.language)}</span><span><small>ESTADO</small>${station.streamUrl ? "Emisión disponible" : "Catalogada"}</span></div>
+    <div class="station-card__programme" id="station-programme" ${programme ? "" : "hidden"}><small>AHORA</small><strong>${escapeHtml(programme)}</strong></div>
+    <div class="station-card__meta"><span><small>IDIOMA</small>${escapeHtml(station.language)}</span><span><small>ESTADO</small><b class="station-health ${health.className}" id="card-health" data-station-id="${station.id}">${health.label}</b></span></div>
     <div class="station-card__actions">
-      <button class="primary-action" id="card-play" ${station.streamUrl ? "" : "disabled"}>${station.streamUrl ? "▶ Reproducir" : "Emisión pendiente"}</button>
+      <button class="primary-action" id="card-play" ${station.streamUrl ? "" : "disabled"}>${station.streamUrl ? (isThisPlaying ? "Ⅱ Pausar" : playingStation?.id === station.id ? "▶ Reanudar" : "▶ Reproducir") : "Emisión pendiente"}</button>
       <a href="${safeUrl(station.websiteUrl)}" target="_blank" rel="noreferrer" title="Abrir sitio oficial">↗</a>
     </div>`;
   byId("station-card-close").addEventListener("click", () => { stationCard.hidden = true; });
-  byId<HTMLButtonElement>("card-play").addEventListener("click", () => void startPlayback());
-  playerLogo.textContent = initials(station.name);
-  playerLogo.className = `station-logo ${station.mediaType}`;
-  playerKicker.textContent = station.mediaType === "radio" ? "RADIO SELECCIONADA" : "TELEVISIÓN SELECCIONADA";
-  playerTitle.textContent = station.name;
-  playerPlace.textContent = `${station.city} · ${station.country}`;
-  playButton.disabled = !station.streamUrl;
-  playButton.title = station.streamUrl ? "Reproducir" : "Esta ficha todavía no tiene emisión verificada";
-  livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
-  stopMedia();
+  byId<HTMLButtonElement>("card-play").addEventListener("click", () => void startPlayback(station));
+  if (!playingStation) updatePlayerStation(station);
   if (fly && map && isMappable(station)) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
   renderResults();
 }
 
-function stopMedia(): void {
-  audio.pause(); video.pause();
-  audio.removeAttribute("src"); video.removeAttribute("src");
+function stopMedia(clearStation = true): void {
+  const previous = playingStation;
+  if (clearStation) playingStation = null;
+  audio.pause();
+  video.pause();
+  audio.removeAttribute("src");
+  video.removeAttribute("src");
+  audio.load();
+  video.load();
   hls?.destroy(); hls = null;
   isPlaying = false;
   playButton.innerHTML = "<span>▶</span>";
   videoWindow.hidden = true;
+  if (clearStation && previous && ["connecting", "live", "unstable"].includes(healthFor(previous))) updateHealth(previous, "available");
 }
 
-async function startPlayback(): Promise<void> {
-  if (!selected?.streamUrl) return;
-  if (isPlaying) {
-    audio.pause(); video.pause(); isPlaying = false;
-    playButton.innerHTML = "<span>▶</span>"; livePill.textContent = "PAUSA";
+function readSynchsafe(bytes: Uint8Array, offset: number): number {
+  return ((bytes[offset] & 0x7f) << 21) | ((bytes[offset + 1] & 0x7f) << 14) | ((bytes[offset + 2] & 0x7f) << 7) | (bytes[offset + 3] & 0x7f);
+}
+
+function decodeId3Text(bytes: Uint8Array): string {
+  if (!bytes.length) return "";
+  const encoding = bytes[0];
+  const body = bytes.subarray(1);
+  const label = encoding === 1 ? "utf-16" : encoding === 2 ? "utf-16be" : encoding === 3 ? "utf-8" : "iso-8859-1";
+  try { return new TextDecoder(label).decode(body).replace(/^\ufeff/, "").trim(); }
+  catch { return new TextDecoder().decode(body).trim(); }
+}
+
+function parseId3Programme(bytes: Uint8Array): string {
+  if (bytes.length < 10 || String.fromCharCode(...bytes.subarray(0, 3)) !== "ID3") return "";
+  const version = bytes[3];
+  const tagEnd = Math.min(bytes.length, 10 + readSynchsafe(bytes, 6));
+  let offset = 10;
+  let title = "";
+  let artist = "";
+  let custom = "";
+  while (offset + 10 <= tagEnd) {
+    const id = String.fromCharCode(...bytes.subarray(offset, offset + 4));
+    if (!/^[A-Z0-9]{4}$/.test(id)) break;
+    const size = version === 4
+      ? readSynchsafe(bytes, offset + 4)
+      : ((bytes[offset + 4] << 24) >>> 0) + (bytes[offset + 5] << 16) + (bytes[offset + 6] << 8) + bytes[offset + 7];
+    if (!size || offset + 10 + size > tagEnd) break;
+    const value = decodeId3Text(bytes.subarray(offset + 10, offset + 10 + size));
+    if (id === "TIT2") title = value.replaceAll("\0", "").trim();
+    else if (id === "TPE1") artist = value.replaceAll("\0", "").trim();
+    else if (id === "TXXX") custom = value.split("\0").filter(Boolean).at(-1)?.trim() ?? "";
+    offset += 10 + size;
+  }
+  if (title && artist && !title.toLocaleLowerCase().includes(artist.toLocaleLowerCase())) return `${artist} — ${title}`;
+  return title || custom;
+}
+
+function activeMedia(station = playingStation): HTMLMediaElement | null {
+  if (!station) return null;
+  return station.mediaType === "tv" ? video : audio;
+}
+
+async function startPlayback(target = playingStation ?? selected): Promise<void> {
+  if (!target?.streamUrl) return;
+  const sameStation = playingStation?.id === target.id;
+  if (sameStation && isPlaying) {
+    activeMedia(target)?.pause();
+    isPlaying = false;
+    playButton.innerHTML = "<span>▶</span>";
+    playButton.title = "Reanudar";
+    livePill.textContent = "PAUSA";
+    if (selected?.id === target.id) showStation(target);
     return;
   }
-  const media = selected.mediaType === "tv" ? video : audio;
+  if (!sameStation) {
+    stopMedia(true);
+    playingStation = target;
+    updatePlayerStation(target);
+    updateHealth(target, "connecting");
+  }
+  const media = activeMedia(target)!;
   if (!media.src && !hls) {
-    if (selected.streamFormat === "hls" && Hls.isSupported()) {
+    if (target.streamFormat === "hls" && Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-      hls.loadSource(selected.streamUrl); hls.attachMedia(media);
+      hls.on(Hls.Events.FRAG_PARSING_METADATA, (_event, data) => {
+        if (playingStation?.id !== target.id) return;
+        for (const sample of data.samples) {
+          const programme = parseId3Programme(sample.data);
+          if (programme) updateProgramme(target, programme);
+        }
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (playingStation?.id !== target.id) return;
+        if (data.fatal) {
+          isPlaying = false;
+          playButton.innerHTML = "<span>▶</span>";
+          updateHealth(target, "offline");
+        } else if (isPlaying) updateHealth(target, "unstable");
+      });
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        if (playingStation?.id === target.id && isPlaying) updateHealth(target, "live");
+      });
+      hls.loadSource(target.streamUrl); hls.attachMedia(media);
     } else {
-      media.src = selected.streamUrl;
+      media.src = target.streamUrl;
     }
   }
-  if (selected.mediaType === "tv" && playerVisible) videoWindow.hidden = false;
+  if (target.mediaType === "tv" && playerVisible) videoWindow.hidden = false;
   try {
-    await media.play(); isPlaying = true;
-    playButton.innerHTML = "<span>Ⅱ</span>"; livePill.textContent = "EN DIRECTO";
+    await media.play();
+    if (playingStation?.id !== target.id) return;
+    isPlaying = true;
+    playButton.innerHTML = "<span>Ⅱ</span>";
+    playButton.title = "Pausar";
+    updateHealth(target, "live");
+    if (selected?.id === target.id) showStation(target);
   } catch {
-    livePill.textContent = "NO DISPONIBLE";
+    if (playingStation?.id === target.id) {
+      isPlaying = false;
+      playButton.innerHTML = "<span>▶</span>";
+      updateHealth(target, "offline");
+    }
   }
+}
+
+function discoverStation(): void {
+  const pool = filteredStations().filter((station) => station.streamUrl && isMappable(station));
+  if (!pool.length) return;
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  const station = pool[random[0] % pool.length];
+  setView("map");
+  showStation(station, true);
 }
 
 function selectRelative(direction: number): void {
@@ -618,6 +795,7 @@ byId("theme-button").addEventListener("click", () => {
 });
 document.querySelectorAll("[data-close-panel]").forEach((button) => button.addEventListener("click", closePanels));
 byId("catalog-toggle").addEventListener("click", () => setView(currentView === "map" ? "catalog" : "map"));
+byId("discover-button").addEventListener("click", discoverStation);
 byId("player-toggle").addEventListener("click", () => {
   playerVisible = !playerVisible;
   player.classList.toggle("is-hidden", !playerVisible);
@@ -661,8 +839,38 @@ byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, 
 playButton.addEventListener("click", () => void startPlayback());
 byId("previous-button").addEventListener("click", () => selectRelative(-1));
 byId("next-button").addEventListener("click", () => selectRelative(1));
-byId("close-video").addEventListener("click", () => { video.pause(); videoWindow.hidden = true; isPlaying = false; playButton.innerHTML = "<span>▶</span>"; });
+byId("close-video").addEventListener("click", () => {
+  video.pause();
+  videoWindow.hidden = true;
+  isPlaying = false;
+  playButton.innerHTML = "<span>▶</span>";
+  playButton.title = "Reanudar";
+  livePill.textContent = "PAUSA";
+  if (playingStation && selected?.id === playingStation.id) showStation(playingStation);
+});
 byId<HTMLInputElement>("volume").addEventListener("input", (event) => { const volume = Number((event.target as HTMLInputElement).value); audio.volume = volume; video.volume = volume; });
+
+[audio, video].forEach((media) => {
+  media.addEventListener("playing", () => {
+    if (!playingStation || media !== activeMedia()) return;
+    isPlaying = true;
+    playButton.innerHTML = "<span>Ⅱ</span>";
+    playButton.title = "Pausar";
+    updateHealth(playingStation, "live");
+  });
+  const markUnstable = () => {
+    if (playingStation && isPlaying && media === activeMedia()) updateHealth(playingStation, "unstable");
+  };
+  media.addEventListener("waiting", markUnstable);
+  media.addEventListener("stalled", markUnstable);
+  media.addEventListener("error", () => {
+    if (!playingStation || media !== activeMedia()) return;
+    isPlaying = false;
+    playButton.innerHTML = "<span>▶</span>";
+    playButton.title = "Reintentar";
+    updateHealth(playingStation, "offline");
+  });
+});
 
 async function boot(): Promise<void> {
   try {
