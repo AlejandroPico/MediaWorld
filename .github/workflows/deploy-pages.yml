@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - name: Instalar dependencias
         run: npm ci
+      - name: Actualizar radios y televisiones regionales
+        run: npm run catalog:refresh
       - name: Compilar aplicación y catálogo
         run: npm run build
       - name: Configurar Pages

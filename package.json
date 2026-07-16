@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "vite",
-    "catalog:iberia": "node scripts/fetch-iberian-radio.mjs",
+    "catalog:radio": "node scripts/fetch-regional-radio.mjs",
+    "catalog:tv": "node scripts/fetch-regional-tv.mjs",
+    "catalog:refresh": "npm run catalog:radio && npm run catalog:tv",
     "build:db": "node scripts/build-db.mjs",
     "typecheck": "tsc --noEmit",
     "build": "npm run build:db && npm run typecheck && vite build",

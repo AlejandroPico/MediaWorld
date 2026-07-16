@@ -1,6 +1,6 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
-import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent, type StyleSpecification } from "maplibre-gl";
 import Hls from "hls.js";
 import { loadCatalog } from "./db";
 import type { CatalogStats, MediaType, Station } from "./types";
@@ -18,6 +18,14 @@ app.innerHTML = `
       </button>
       <div class="topbar__status" id="catalog-status"><span class="pulse"></span> Catálogo local</div>
       <div class="topbar__actions">
+        <label class="map-mode" title="Presentación del mapamundi">
+          <span>MAPA</span>
+          <select id="map-mode" aria-label="Presentación del mapamundi">
+            <option value="satellite">Satélite 3D</option>
+            <option value="political">Mapa / carreteras</option>
+            <option value="relief">Relieve</option>
+          </select>
+        </label>
         <button class="icon-button" id="locate-button" title="Mi ubicación" aria-label="Mi ubicación">⌾</button>
         <button class="icon-button" id="theme-button" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
         <button class="about-button" id="about-button">Acerca de</button>
@@ -53,6 +61,7 @@ app.innerHTML = `
       <button id="zoom-in" aria-label="Acercar">+</button><button id="zoom-out" aria-label="Alejar">−</button>
       <hr /><button id="reset-bearing" aria-label="Orientar al norte">N</button>
     </div>
+    <div class="map-engine-status glass" id="map-engine-status">Iniciando esfera 3D…</div>
 
     <section class="video-window glass" id="video-window" hidden>
       <div class="video-window__head"><span>EMISIÓN EN DIRECTO</span><button id="close-video">×</button></div>
@@ -82,10 +91,10 @@ app.innerHTML = `
       <h2>El paisaje audiovisual, sobre un solo mundo.</h2>
       <p>MediaWorld es un atlas visual de cadenas de radio y televisión. Acércate desde el planeta hasta una región, ciudad o barrio; selecciona una señal y decide tú cuándo reproducirla.</p>
       <div class="dialog-grid">
-        <div><strong>Globo vectorial</strong><span>Países, regiones, ciudades y barrios aparecen progresivamente con el zoom.</span></div>
+        <div><strong>Planeta 3D de CAMS</strong><span>Proyección esférica, satélite, relieve y zoom cartográfico hasta calle.</span></div>
         <div><strong>Catálogo SQLite</strong><span>La base de datos se consulta localmente en tu navegador.</span></div>
         <div><strong>Reproducción manual</strong><span>Ninguna emisora se inicia al pasar por encima o seleccionarla.</span></div>
-        <div><strong>Fuentes abiertas</strong><span>Cartografía basada en OpenStreetMap y OpenFreeMap.</span></div>
+        <div><strong>Modos cartográficos</strong><span>Satélite por defecto, mapa con carreteras y presentación de relieve.</span></div>
       </div>
       <p class="dialog-note">Las entradas marcadas como “catalogadas” están preparadas para enriquecerse y verificar su emisión en próximas iteraciones.</p>
     </dialog>
@@ -116,23 +125,41 @@ let selectedIndex = -1;
 let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
+type MapMode = "satellite" | "political" | "relief";
+let currentMapMode: MapMode = "satellite";
+let map: maplibregl.Map | null = null;
+let mapReady = false;
 
+const POLITICAL_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const SATELLITE_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const RELIEF_TILES = "https://a.tile.opentopomap.org/{z}/{x}/{y}.png";
 const TERRAIN_TILEJSON = "https://tiles.mapterhorn.com/tilejson.json";
-const map = new maplibregl.Map({
-  container: "map",
-  style: "https://tiles.openfreemap.org/styles/liberty",
-  center: [-3, 28],
-  zoom: 1.35,
-  minZoom: 1,
-  maxZoom: 19,
-  pitch: 0,
-  attributionControl: false,
-  renderWorldCopies: false,
-  maxPitch: 70
-});
-map.setProjection({ type: "globe" });
-map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+const PLACES_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_populated_places_simple.geojson";
+
+function createBaseMapStyle(): StyleSpecification {
+  return {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      political: {
+        type: "raster",
+        tiles: [POLITICAL_TILES],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+        attribution: "© OpenStreetMap contributors"
+      }
+    },
+    layers: [
+      { id: "space", type: "background", paint: { "background-color": "#010205" } },
+      {
+        id: "political-base", type: "raster", source: "political", minzoom: 0, maxzoom: 24,
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 80, "raster-saturation": -.12, "raster-contrast": .08 }
+      }
+    ]
+  };
+}
 
 const stationToFeature = (station: Station): GeoJSON.Feature<GeoJSON.Point> => ({
   type: "Feature",
@@ -163,12 +190,14 @@ function filteredStations(): Station[] {
 
 function visibleStations(items: Station[]): Station[] {
   if (searchInput.value.trim()) return items;
+  if (!map || !mapReady) return items;
   const bounds = map.getBounds();
   const visible = items.filter((station) => bounds.contains([station.longitude, station.latitude]));
   return visible.length ? visible : items;
 }
 
 function updateMapData(items: Station[]): void {
+  if (!map) return;
   const source = map.getSource("stations") as GeoJSONSource | undefined;
   source?.setData({ type: "FeatureCollection", features: items.map(stationToFeature) });
 }
@@ -211,7 +240,7 @@ function showStation(station: Station, fly = false): void {
   playButton.title = station.streamUrl ? "Reproducir" : "Esta ficha todavía no tiene emisión verificada";
   livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
   stopMedia();
-  if (fly) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
+  if (fly && map) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 10), pitch: 35, duration: 1400 });
   renderList();
 }
 
@@ -263,41 +292,59 @@ function applyTheme(): void {
   localStorage.setItem("mediaworld-theme", isLight ? "light" : "dark");
 }
 
-function installSatelliteGlobe(): void {
-  if (!map.getSource("satellite")) {
-    map.addSource("satellite", {
-      type: "raster",
-      tiles: [SATELLITE_TILES],
-      tileSize: 256,
-      minzoom: 0,
-      maxzoom: 19,
-      attribution: "Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"
-    });
-  }
-  const firstLabel = map.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
-  if (!map.getLayer("satellite-world")) {
-    map.addLayer({
-      id: "satellite-world",
-      type: "raster",
-      source: "satellite",
-      minzoom: 0,
-      maxzoom: 24,
-      paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 80, "raster-contrast": 0.04, "raster-saturation": 0.02 }
-    }, firstLabel);
-  }
-  for (const layer of map.getStyle().layers) {
-    if (layer.type !== "symbol") continue;
-    if (/(road|highway|motorway|transport|transit|poi|housenumber|airport|aeroway)/i.test(layer.id)) {
-      map.setLayoutProperty(layer.id, "visibility", "none");
-    }
-  }
-  if (!map.getSource("terrain-dem")) map.addSource("terrain-dem", { type: "raster-dem", url: TERRAIN_TILEJSON });
-  try { map.setTerrain({ source: "terrain-dem", exaggeration: 1.08 }); } catch { /* El satélite sigue operativo sin relieve. */ }
+function addBaseLayers(activeMap: maplibregl.Map): void {
+  if (!activeMap.getSource("satellite")) activeMap.addSource("satellite", {
+    type: "raster", tiles: [SATELLITE_TILES], tileSize: 256, minzoom: 0, maxzoom: 19,
+    attribution: "Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"
+  });
+  if (!activeMap.getLayer("satellite-base")) activeMap.addLayer({
+    id: "satellite-base", type: "raster", source: "satellite", minzoom: 0, maxzoom: 24,
+    layout: { visibility: "visible" },
+    paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 80, "raster-contrast": .05, "raster-saturation": .04 }
+  });
+  if (!activeMap.getSource("relief")) activeMap.addSource("relief", {
+    type: "raster", tiles: [RELIEF_TILES], tileSize: 256, minzoom: 0, maxzoom: 17,
+    attribution: "Map data © OpenStreetMap contributors · SRTM · OpenTopoMap"
+  });
+  if (!activeMap.getLayer("relief-base")) activeMap.addLayer({
+    id: "relief-base", type: "raster", source: "relief", minzoom: 0, maxzoom: 24,
+    layout: { visibility: "none" },
+    paint: { "raster-opacity": 1, "raster-resampling": "linear", "raster-fade-duration": 100, "raster-saturation": -.06, "raster-contrast": .07 }
+  });
+  if (!activeMap.getSource("terrain-dem")) activeMap.addSource("terrain-dem", { type: "raster-dem", url: TERRAIN_TILEJSON });
+  if (!activeMap.getSource("hillshade-dem")) activeMap.addSource("hillshade-dem", { type: "raster-dem", url: TERRAIN_TILEJSON });
+  if (!activeMap.getLayer("terrain-hillshade")) activeMap.addLayer({
+    id: "terrain-hillshade", type: "hillshade", source: "hillshade-dem", layout: { visibility: "none" },
+    paint: { "hillshade-shadow-color": "#172231", "hillshade-highlight-color": "#f4e8c8", "hillshade-accent-color": "#42546a", "hillshade-exaggeration": .55 }
+  });
+}
+
+function applyMapMode(activeMap: maplibregl.Map, mode: MapMode): void {
+  activeMap.setLayoutProperty("satellite-base", "visibility", mode === "satellite" ? "visible" : "none");
+  activeMap.setLayoutProperty("political-base", "visibility", mode === "political" ? "visible" : "none");
+  activeMap.setLayoutProperty("relief-base", "visibility", mode === "relief" ? "visible" : "none");
+  activeMap.setLayoutProperty("terrain-hillshade", "visibility", mode === "relief" ? "visible" : "none");
+  try { activeMap.setTerrain({ source: "terrain-dem", exaggeration: mode === "relief" ? 1.2 : 1.08 }); } catch { /* La esfera sigue disponible sin elevación. */ }
+}
+
+function addPlaces(activeMap: maplibregl.Map): void {
+  if (!activeMap.getSource("places")) activeMap.addSource("places", { type: "geojson", data: PLACES_URL, attribution: "Localidades © Natural Earth" });
+  if (!activeMap.getLayer("place-labels")) activeMap.addLayer({
+    id: "place-labels", type: "symbol", source: "places", minzoom: 2.2, maxzoom: 24,
+    filter: ["<=", ["to-number", ["get", "scalerank"]], 7],
+    layout: {
+      "text-field": ["coalesce", ["get", "name"], ["get", "nameascii"]],
+      "text-font": ["Open Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 2, 9, 6, 12, 12, 15],
+      "text-allow-overlap": false
+    },
+    paint: { "text-color": "#f7f9ff", "text-halo-color": "rgba(0,0,0,.94)", "text-halo-width": 1.6 }
+  });
 }
 
 function installStationLayers(): void {
   const activeMap = map;
-  if (!activeMap || activeMap.getSource("stations")) return;
+  if (!activeMap || !mapReady || activeMap.getSource("stations")) return;
   activeMap.addSource("stations", {
     type: "geojson",
     data: { type: "FeatureCollection", features: filteredStations().map(stationToFeature) },
@@ -308,7 +355,7 @@ function installStationLayers(): void {
     type: "circle",
     source: "stations",
     paint: {
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 1.35, 4, 1.8, 8, 2.8, 12, 4.6, 18, 6.2],
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], .25, 1.25, 4, 1.8, 8, 2.8, 12, 4.6, 18, 6.2],
       "circle-color": ["match", ["get", "mediaType"], "radio", "#20e3cf", "#ff5f8d"],
       "circle-stroke-color": "rgba(2,7,13,.92)",
       "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 1, 0.35, 10, 1.2],
@@ -333,17 +380,56 @@ function installStationLayers(): void {
   renderList();
 }
 
-{
+function initializeMap(): void {
+  const status = byId<HTMLElement>("map-engine-status");
+  try {
+    map = new maplibregl.Map({
+      container: "map", style: createBaseMapStyle(), center: [2, 30], zoom: 1.2,
+      minZoom: .25, maxZoom: 22, maxPitch: 85, pitch: 0, bearing: 0,
+      renderWorldCopies: false, attributionControl: false, cooperativeGestures: false, fadeDuration: 100
+    });
+  } catch (error) {
+    status.textContent = `Motor 3D no disponible: ${error instanceof Error ? error.message : "error WebGL"}`;
+    status.classList.add("is-error");
+    return;
+  }
   const activeMap = map;
-  activeMap.on("load", () => { installSatelliteGlobe(); installStationLayers(); });
+  activeMap.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+  activeMap.scrollZoom.setWheelZoomRate(1 / 260);
+  activeMap.touchZoomRotate.enable();
+  let booted = false;
+  const bootMap = () => {
+    if (booted || !activeMap.isStyleLoaded()) return;
+    booted = true;
+    try {
+      activeMap.setProjection({ type: "globe" });
+      addBaseLayers(activeMap);
+      applyMapMode(activeMap, currentMapMode);
+      addPlaces(activeMap);
+      mapReady = true;
+      installStationLayers();
+      activeMap.on("click", "station-points", (event: MapLayerMouseEvent) => {
+        const id = Number(event.features?.[0]?.properties?.id);
+        const station = stations.find((item) => item.id === id);
+        if (station) showStation(station);
+      });
+      activeMap.on("mouseenter", "station-points", () => { activeMap.getCanvas().style.cursor = "pointer"; });
+      activeMap.on("mouseleave", "station-points", () => { activeMap.getCanvas().style.cursor = ""; });
+      status.textContent = "Esfera 3D · Satélite";
+      status.classList.add("is-ready");
+      activeMap.resize();
+    } catch (error) {
+      status.textContent = `No se pudo activar la esfera 3D: ${error instanceof Error ? error.message : "error cartográfico"}`;
+      status.classList.add("is-error");
+    }
+  };
+  activeMap.on("style.load", bootMap);
+  activeMap.on("load", bootMap);
+  activeMap.on("styledata", bootMap);
+  window.setTimeout(bootMap, 0);
+  window.setTimeout(bootMap, 250);
+  window.setTimeout(bootMap, 1000);
   activeMap.on("moveend", renderList);
-  activeMap.on("click", "station-points", (event: MapLayerMouseEvent) => {
-    const id = Number(event.features?.[0]?.properties?.id);
-    const station = stations.find((item) => item.id === id);
-    if (station) showStation(station);
-  });
-  activeMap.on("mouseenter", "station-points", () => { activeMap.getCanvas().style.cursor = "pointer"; });
-  activeMap.on("mouseleave", "station-points", () => { activeMap.getCanvas().style.cursor = ""; });
 }
 
 stationList.addEventListener("click", (event) => {
@@ -370,14 +456,22 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
   document.querySelector<HTMLButtonElement>('[data-type="tv"]')?.classList.toggle("is-active", enabledTypes.has("tv"));
   renderList();
 }));
-byId("home-button").addEventListener("click", () => map.flyTo({ center: [-3, 28], zoom: 1.35, pitch: 0, bearing: 0 }));
+byId("home-button").addEventListener("click", () => map?.flyTo({ center: [2, 30], zoom: 1.2, pitch: 0, bearing: 0 }));
 byId("reset-button").addEventListener("click", () => { searchInput.value = ""; enabledTypes = new Set(["radio", "tv"]); document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active")); renderList(); });
-byId("zoom-in").addEventListener("click", () => map.zoomIn());
-byId("zoom-out").addEventListener("click", () => map.zoomOut());
-byId("reset-bearing").addEventListener("click", () => map.easeTo({ bearing: 0, pitch: 0 }));
+byId("zoom-in").addEventListener("click", () => map?.zoomIn());
+byId("zoom-out").addEventListener("click", () => map?.zoomOut());
+byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
+byId<HTMLSelectElement>("map-mode").addEventListener("change", (event) => {
+  currentMapMode = (event.target as HTMLSelectElement).value as MapMode;
+  if (map && mapReady) {
+    applyMapMode(map, currentMapMode);
+    const label = { satellite: "Satélite", political: "Mapa / carreteras", relief: "Relieve" }[currentMapMode];
+    byId("map-engine-status").textContent = `Esfera 3D · ${label}`;
+  }
+});
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
-byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 14, pitch: 45 })));
+byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map?.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 14, pitch: 45 })));
 playButton.addEventListener("click", () => void startPlayback());
 byId("previous-button").addEventListener("click", () => selectRelative(-1));
 byId("next-button").addEventListener("click", () => selectRelative(1));
@@ -392,7 +486,7 @@ async function boot(): Promise<void> {
     const catalog = await loadCatalog();
     stations = catalog.stations;
     showStats(catalog.stats);
-    if (map.loaded()) installStationLayers();
+    if (map?.loaded() && mapReady) installStationLayers();
     renderList();
   } catch (error) {
     byId("catalog-status").innerHTML = `<span class="error-dot"></span> Catálogo no disponible`;
@@ -410,4 +504,5 @@ function showStats(stats: CatalogStats): void {
 if (localStorage.getItem("mediaworld-theme") === "light") {
   document.documentElement.classList.add("light-theme");
 }
+initializeMap();
 void boot();

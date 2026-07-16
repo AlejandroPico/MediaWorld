@@ -6,7 +6,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 
 - Globo 3D MapLibre con fotografía satelital Esri, relieve y zoom cartográfico hasta calle, siguiendo el mismo motor utilizado en CAMS.
 - Rótulos geográficos integrados en el mapa y nombres de emisora reservados para niveles de zoom cercanos.
-- Catálogo geolocalizado de radio y televisión con agrupación de señales.
+- Puntos independientes para radio y televisión, visibles a distancia y sin mostrar nombres hasta un zoom cercano.
 - Búsqueda por emisora, ciudad, región, país o idioma.
 - Filtros independientes para radio y televisión.
 - Fichas editoriales con alcance, idioma, localización y web oficial.
@@ -33,7 +33,7 @@ npm run preview
 
 `npm run build:db` regenera `public/data/mediaworld.sqlite` a partir de `data/stations.json` y `data/schema.sql`.
 
-`npm run catalog:iberia` actualiza el inventario masivo de radios de España, Portugal, Andorra y Gibraltar mediante la red abierta Radio Browser. El resultado se normaliza, deduplica y guarda en `data/iberian-radio.json` antes de compilar SQLite.
+`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para España, Portugal, Andorra, Gibraltar, Francia, Bélgica, Países Bajos, Luxemburgo, Reino Unido e Irlanda. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
 
 ## Arquitectura de datos
 
@@ -43,8 +43,8 @@ Una ficha `catalogued` confirma la inclusión enciclopédica, no la disponibilid
 
 ## Cartografía y atribución
 
-La interfaz usa MapLibre GL JS en proyección globo, fotografía satelital Esri World Imagery, terreno Mapterhorn y rótulos cartográficos de OpenFreeMap/OpenStreetMap. Las atribuciones permanecen visibles en el visor.
+La interfaz reproduce el arranque cartográfico de CAMS: MapLibre GL JS espera a que el estilo esté listo y entonces activa la proyección `globe`. Incluye fotografía satelital Esri World Imagery, terreno Mapterhorn, mapa de OpenStreetMap, relieve OpenTopoMap y rótulos de Natural Earth. Las atribuciones permanecen visibles en el visor.
 
 ## Estado
 
-Prototipo funcional inicial. El catálogo incluido es deliberadamente pequeño: sirve para validar la experiencia, el modelo de datos y el reproductor antes de emprender la incorporación masiva y verificada de cadenas.
+Prototipo funcional con catálogo masivo. Las coordenadas declaradas por las fuentes se conservan como exactas; las posiciones inferidas o aproximadas se identifican expresamente mediante `geo_precision`.

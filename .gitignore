@@ -3,3 +3,5 @@ dist/
 .vite/
 *.log
 .DS_Store
+data/regional-radio.json
+data/regional-tv.json

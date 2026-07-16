@@ -10,7 +10,13 @@ const countries = {
   ES: { name: "España", bounds: [-19, 27, 5, 44.5] },
   PT: { name: "Portugal", bounds: [-32, 30, -5.5, 43] },
   AD: { name: "Andorra", bounds: [1.3, 42.3, 1.9, 42.8] },
-  GI: { name: "Gibraltar", bounds: [-5.5, 35.9, -5.2, 36.3] }
+  GI: { name: "Gibraltar", bounds: [-5.5, 35.9, -5.2, 36.3] },
+  FR: { name: "Francia", bounds: [-5.5, 41, 10, 51.5] },
+  BE: { name: "Bélgica", bounds: [2.4, 49.4, 6.5, 51.7] },
+  NL: { name: "Países Bajos", bounds: [3.2, 50.7, 7.3, 53.7] },
+  LU: { name: "Luxemburgo", bounds: [5.7, 49.4, 6.6, 50.3] },
+  GB: { name: "Reino Unido", bounds: [-8.8, 49.7, 2.2, 61] },
+  IE: { name: "Irlanda", bounds: [-10.8, 51.2, -5.2, 55.6] }
 };
 
 const places = [
@@ -66,14 +72,44 @@ const places = [
   ["viana do castelo", "Viana do Castelo", 41.6918, -8.8344], ["madeira", "Madeira", 32.6669, -16.9241],
   ["funchal", "Funchal", 32.6669, -16.9241], ["azores", "Açores", 37.7412, -25.6756],
   ["acores", "Açores", 37.7412, -25.6756], ["andorra", "Andorra", 42.5063, 1.5218],
-  ["gibraltar", "Gibraltar", 36.1408, -5.3536]
+  ["gibraltar", "Gibraltar", 36.1408, -5.3536],
+  ["paris", "París", 48.8566, 2.3522], ["lyon", "Lyon", 45.764, 4.8357],
+  ["marseille", "Marsella", 43.2965, 5.3698], ["marseille", "Marsella", 43.2965, 5.3698],
+  ["toulouse", "Toulouse", 43.6047, 1.4442], ["bordeaux", "Burdeos", 44.8378, -0.5792],
+  ["lille", "Lille", 50.6292, 3.0573], ["nantes", "Nantes", 47.2184, -1.5536],
+  ["strasbourg", "Estrasburgo", 48.5734, 7.7521], ["nice", "Niza", 43.7102, 7.262],
+  ["rennes", "Rennes", 48.1173, -1.6778], ["montpellier", "Montpellier", 43.6108, 3.8767],
+  ["ajaccio", "Ajaccio", 41.9192, 8.7386], ["corsica", "Córcega", 42.0396, 9.0129],
+  ["bruxelles", "Bruselas", 50.8503, 4.3517], ["brussels", "Bruselas", 50.8503, 4.3517],
+  ["antwerpen", "Amberes", 51.2194, 4.4025], ["antwerp", "Amberes", 51.2194, 4.4025],
+  ["gent", "Gante", 51.0543, 3.7174], ["ghent", "Gante", 51.0543, 3.7174],
+  ["liege", "Lieja", 50.6326, 5.5797], ["charleroi", "Charleroi", 50.4108, 4.4446],
+  ["amsterdam", "Ámsterdam", 52.3676, 4.9041], ["rotterdam", "Róterdam", 51.9244, 4.4777],
+  ["den haag", "La Haya", 52.0705, 4.3007], ["the hague", "La Haya", 52.0705, 4.3007],
+  ["utrecht", "Utrecht", 52.0907, 5.1214], ["eindhoven", "Eindhoven", 51.4416, 5.4697],
+  ["groningen", "Groninga", 53.2194, 6.5665], ["maastricht", "Maastricht", 50.8514, 5.691],
+  ["luxembourg", "Luxemburgo", 49.6116, 6.1319], ["luxemburg", "Luxemburgo", 49.6116, 6.1319],
+  ["london", "Londres", 51.5072, -0.1276], ["manchester", "Mánchester", 53.4808, -2.2426],
+  ["birmingham", "Birmingham", 52.4862, -1.8904], ["glasgow", "Glasgow", 55.8642, -4.2518],
+  ["edinburgh", "Edimburgo", 55.9533, -3.1883], ["liverpool", "Liverpool", 53.4084, -2.9916],
+  ["bristol", "Bristol", 51.4545, -2.5879], ["leeds", "Leeds", 53.8008, -1.5491],
+  ["cardiff", "Cardiff", 51.4816, -3.1791], ["belfast", "Belfast", 54.5973, -5.9301],
+  ["newcastle", "Newcastle", 54.9783, -1.6178], ["dublin", "Dublín", 53.3498, -6.2603],
+  ["cork", "Cork", 51.8985, -8.4756], ["galway", "Galway", 53.2707, -9.0568],
+  ["limerick", "Limerick", 52.6638, -8.6267], ["waterford", "Waterford", 52.2593, -7.1101]
 ].map(([key, label, lat, lon]) => ({ key, label, lat, lon }));
 
 const fallbackAnchors = {
   ES: places.filter((place) => ["madrid", "barcelona", "sevilla", "valencia", "zaragoza", "a coruna", "bilbao", "valladolid", "murcia", "mallorca", "tenerife", "gran canaria"].includes(place.key)),
   PT: places.filter((place) => ["lisboa", "porto", "braga", "coimbra", "faro", "madeira", "azores"].includes(place.key)),
   AD: places.filter((place) => place.key === "andorra"),
-  GI: places.filter((place) => place.key === "gibraltar")
+  GI: places.filter((place) => place.key === "gibraltar"),
+  FR: places.filter((place) => ["paris", "lyon", "marseille", "toulouse", "bordeaux", "lille", "nantes", "strasbourg", "nice", "rennes", "montpellier", "ajaccio"].includes(place.key)),
+  BE: places.filter((place) => ["bruxelles", "antwerpen", "gent", "liege", "charleroi"].includes(place.key)),
+  NL: places.filter((place) => ["amsterdam", "rotterdam", "den haag", "utrecht", "eindhoven", "groningen", "maastricht"].includes(place.key)),
+  LU: places.filter((place) => place.key === "luxembourg"),
+  GB: places.filter((place) => ["london", "manchester", "birmingham", "glasgow", "edinburgh", "liverpool", "bristol", "leeds", "cardiff", "belfast", "newcastle"].includes(place.key)),
+  IE: places.filter((place) => ["dublin", "cork", "galway", "limerick", "waterford"].includes(place.key))
 };
 
 const normalize = (value = "") => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -166,9 +202,9 @@ const output = [...unique.values()].sort((a, b) => a.requestedCode.localeCompare
   };
 });
 
-const target = path.join(root, "data/iberian-radio.json");
+const target = path.join(root, "data/regional-radio.json");
 await writeFile(target, `${JSON.stringify(output, null, 2)}\n`);
 const summary = Object.keys(countries).map((code) => `${code}: ${output.filter((station) => station.countryCode === code).length}`).join(" · ");
 const exact = output.filter((station) => station.geoPrecision === "exact").length;
 const playable = output.filter((station) => station.streamUrl).length;
-console.log(`Catálogo ibérico: ${output.length} emisoras (${summary}) · ${exact} coordenadas declaradas · ${playable} streams HTTPS`);
+console.log(`Catálogo regional: ${output.length} emisoras (${summary}) · ${exact} coordenadas declaradas · ${playable} streams HTTPS`);
