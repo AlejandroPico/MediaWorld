@@ -1,0 +1,10 @@
+{
+  "name": "MediaWorld",
+  "short_name": "MediaWorld",
+  "description": "Explorador mundial de radio y televisión",
+  "start_url": "/MediaWorld/",
+  "display": "standalone",
+  "background_color": "#07111e",
+  "theme_color": "#07111e",
+  "icons": [{"src":"favicon.svg","sizes":"any","type":"image/svg+xml"}]
+}
