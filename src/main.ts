@@ -118,23 +118,34 @@ let hls: Hls | null = null;
 let isPlaying = false;
 
 let map: maplibregl.Map | null = null;
-try {
-  map = new maplibregl.Map({
-    container: "map",
-    style: "https://tiles.openfreemap.org/styles/liberty",
-    center: [8, 25],
-    zoom: 1.55,
-    minZoom: 1.15,
-    maxZoom: 19,
-    pitch: 0,
-    attributionControl: false,
-    renderWorldCopies: false
-  });
-  map.setProjection({ type: "globe" });
-  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-} catch {
+const showMapFallback = (): void => {
   byId("map").innerHTML = `<div class="map-fallback"><span>◎</span><strong>Vista 3D no disponible</strong><p>El catálogo sigue operativo. Activa la aceleración gráfica del navegador para ver el globo.</p></div>`;
   document.documentElement.classList.add("no-webgl");
+};
+const supportsWebGL = (): boolean => {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch { return false; }
+};
+if (supportsWebGL()) {
+  try {
+    map = new maplibregl.Map({
+      container: "map",
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      center: [8, 25],
+      zoom: 1.55,
+      minZoom: 1.15,
+      maxZoom: 19,
+      pitch: 0,
+      attributionControl: false,
+      renderWorldCopies: false
+    });
+    map.setProjection({ type: "globe" });
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+  } catch { showMapFallback(); }
+} else {
+  showMapFallback();
 }
 
 const stationToFeature = (station: Station): GeoJSON.Feature<GeoJSON.Point> => ({
