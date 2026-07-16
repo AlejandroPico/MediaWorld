@@ -497,7 +497,8 @@ function initializeMap(): void {
       renderWorldCopies: false, attributionControl: false, cooperativeGestures: false, fadeDuration: 100
     });
   } catch (error) {
-    showMapError(`El mapa 3D no está disponible: ${error instanceof Error ? error.message : "error WebGL"}`);
+    void error;
+    showMapError("No se pudo iniciar la vista 3D en este dispositivo. El catálogo completo sigue disponible.");
     return;
   }
   const activeMap = map;
@@ -524,7 +525,8 @@ function initializeMap(): void {
       activeMap.on("mouseleave", "station-points", () => { activeMap.getCanvas().style.cursor = ""; });
       activeMap.resize();
     } catch (error) {
-      showMapError(`No se pudo activar la esfera 3D: ${error instanceof Error ? error.message : "error cartográfico"}`);
+      void error;
+      showMapError("La esfera 3D no pudo cargarse. Comprueba la aceleración gráfica o abre el catálogo completo.");
     }
   };
   activeMap.on("style.load", bootMap);
