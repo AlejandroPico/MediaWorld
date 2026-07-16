@@ -34,7 +34,7 @@ npm run preview
 
 `npm run build:db` regenera `public/data/mediaworld.sqlite` a partir de `data/stations.json` y `data/schema.sql`.
 
-`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para Europa y Asia, incluidas Rusia, el Cáucaso, Oriente Medio, Asia Central, el subcontinente indio y Asia oriental y sudoriental. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
+`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para Europa, Asia, América completa, el Caribe y la Antártida. Incluye países soberanos y territorios dependientes disponibles en las fuentes. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
 
 ## Arquitectura de datos
 
@@ -42,7 +42,7 @@ GitHub Pages no ejecuta procesos de servidor. Por eso SQLite se distribuye como 
 
 Una ficha `catalogued` confirma la inclusión enciclopédica, no la disponibilidad de una emisión. Solamente las fichas con una URL verificada o marcadas expresamente como demostración habilitan el botón de reproducción.
 
-El mapa no inventa coordenadas para completar cobertura. Las posiciones declaradas se comprueban contra las fronteras terrestres de Natural Earth; las inferencias solo se aceptan cuando el nombre o la región declarada de la señal coincide con una localidad o división administrativa oficial. Las fichas nacionales sin coordenadas fiables permanecen en la búsqueda y en SQLite, se pueden aislar con el filtro «Sin coordenadas», pero no generan puntos ni desplazan el visor.
+El mapa no inventa coordenadas para completar cobertura. Las posiciones declaradas se comprueban contra las fronteras terrestres de Natural Earth; las inferencias solo se aceptan cuando el nombre o la región declarada de la señal coincide con una ciudad o división administrativa oficial del mismo país. Las fichas nacionales sin coordenadas fiables permanecen en la búsqueda y en SQLite, se pueden aislar con el filtro «Sin coordenadas», pero no generan puntos ni desplazan el visor.
 
 ## Cartografía y atribución
 

@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { countries } from "./europe-countries.mjs";
+import { countries } from "./catalog-countries.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cacheDirectory = process.env.RADIO_BROWSER_CACHE_DIR || "";
@@ -169,6 +169,46 @@ async function loadAdministrativePlaces() {
 const administrativePlaces = await loadAdministrativePlaces();
 
 const nameContainsPlace = (name, key) => name === key || name.startsWith(`${key} `) || name.endsWith(` ${key}`) || name.includes(` ${key} `);
+const ambiguousPlaceNames = new Set([
+  "america", "central", "college", "enterprise", "independence", "liberty", "mobile", "national",
+  "normal", "orange", "reading", "union", "university"
+]);
+
+async function loadPopulatedPlaces() {
+  const response = await fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_populated_places_simple.geojson");
+  if (!response.ok) throw new Error(`No se pudieron cargar las ciudades (${response.status})`);
+  const collection = await response.json();
+  const grouped = new Map();
+  for (const feature of collection.features) {
+    const properties = feature.properties || {};
+    const code = String(properties.iso_a2 || "").toUpperCase();
+    if (!countries[code]) continue;
+    const lat = Number(properties.latitude);
+    const lon = Number(properties.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const label = String(properties.name || properties.nameascii || "").trim();
+    const aliases = [properties.name, properties.nameascii, ...String(properties.namealt || "").split("|")]
+      .map((value) => normalize(String(value || "")))
+      .filter((value) => value.length >= 5 && !ambiguousPlaceNames.has(value));
+    for (const alias of new Set(aliases)) {
+      const key = `${code}:${alias}`;
+      const candidate = { key: alias, label, lat, lon, population: Number(properties.pop_max || 0) };
+      const previous = grouped.get(key);
+      if (!previous || candidate.population > previous.population) grouped.set(key, candidate);
+    }
+  }
+  const index = new Map();
+  for (const [compoundKey, place] of grouped) {
+    const code = compoundKey.slice(0, 2);
+    const list = index.get(code) || [];
+    list.push(place);
+    index.set(code, list);
+  }
+  for (const list of index.values()) list.sort((a, b) => b.key.length - a.key.length || b.population - a.population);
+  return index;
+}
+
+const populatedPlaces = await loadPopulatedPlaces();
 
 const conflictingCountryTokens = new Map([
   ["venezuela", "VE"], ["colombia", "CO"], ["ecuador", "EC"], ["argentina", "AR"],
@@ -219,6 +259,8 @@ function chooseLocation(station, code) {
     .filter((place) => place.key.length >= 4 && nameContainsPlace(name, place.key) && (!geometries.length || isInsideCountry(place.lon, place.lat)))
     .sort((a, b) => b.key.length - a.key.length)[0];
   if (matched) return { lat: matched.lat, lon: matched.lon, label: matched.label, precision: "city" };
+  const populated = (populatedPlaces.get(code) || []).find((place) => nameContainsPlace(name, place.key));
+  if (populated) return { lat: populated.lat, lon: populated.lon, label: populated.label, precision: "city" };
   const conflictingToken = [...conflictingCountryTokens].find(([token, tokenCode]) => tokenCode !== code && nameContainsPlace(name, token));
   if (conflictingToken) return { lat: country.lat, lon: country.lon, label: country.name, precision: "country" };
   const administrative = matchAdministrativePlace(code, station.state);
