@@ -22,7 +22,7 @@ app.innerHTML = `
       <button class="dock-button" id="layers-button" aria-label="Abrir capas" aria-expanded="false" title="Capas">
         ${icon('<path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z"/><path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5"/>')}
       </button>
-      <button class="dock-button" id="theme-button" aria-label="Elegir tema" aria-expanded="false" title="Tema">
+      <button class="dock-button" id="theme-button" aria-label="Cambiar tema" title="Tema: Noche">
         ${icon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>')}
       </button>
       <button class="dock-button is-active" id="player-toggle" aria-label="Ocultar reproductor" aria-pressed="true" title="Reproductor">
@@ -67,10 +67,10 @@ app.innerHTML = `
         <button class="panel-close" data-close-panel aria-label="Cerrar capas">×</button>
       </header>
       <div class="map-options" role="radiogroup" aria-label="Presentación del mapamundi">
-        <button class="map-option is-active" data-map-mode="satellite"><span class="map-swatch satellite"></span><span><strong>Satélite 3D</strong><small>Imagen real y relieve</small></span><i></i></button>
-        <button class="map-option" data-map-mode="boundaries"><span class="map-swatch boundaries"></span><span><strong>Político plano</strong><small>Fronteras y países</small></span><i></i></button>
-        <button class="map-option" data-map-mode="political"><span class="map-swatch roads"></span><span><strong>Mapa normal</strong><small>Carreteras y localidades</small></span><i></i></button>
-        <button class="map-option" data-map-mode="relief"><span class="map-swatch relief"></span><span><strong>Relieve</strong><small>Topografía y terreno</small></span><i></i></button>
+        <button class="map-option is-active" data-map-mode="satellite"><span><strong>Satélite 3D</strong><small>Imagen real y relieve</small></span><i></i></button>
+        <button class="map-option" data-map-mode="boundaries"><span><strong>Político plano</strong><small>Fronteras y países</small></span><i></i></button>
+        <button class="map-option" data-map-mode="political"><span><strong>Mapa normal</strong><small>Carreteras y localidades</small></span><i></i></button>
+        <button class="map-option" data-map-mode="relief"><span><strong>Relieve</strong><small>Topografía y terreno</small></span><i></i></button>
       </div>
       <label class="switch-row" id="labels-row">
         <span><strong>Nombres geográficos</strong><small id="labels-help">Países, ciudades y territorios</small></span>
@@ -81,26 +81,9 @@ app.innerHTML = `
       </div>
     </aside>
 
-    <aside class="tool-panel theme-panel glass" id="theme-panel" aria-label="Tema visual" hidden>
-      <header class="panel-heading">
-        <div><span class="eyebrow">APARIENCIA</span><h2>Tema visual</h2></div>
-        <button class="panel-close" data-close-panel aria-label="Cerrar tema">×</button>
-      </header>
-      <div class="theme-options">
-        <button class="theme-option is-active" data-theme-mode="auto"><span>◐</span><strong>Automático</strong><small>Sigue la luz solar local</small></button>
-        <button class="theme-option" data-theme-mode="day"><span>☀</span><strong>Día</strong><small>Hueso cálido</small></button>
-        <button class="theme-option" data-theme-mode="night"><span>☾</span><strong>Noche</strong><small>Azul profundo</small></button>
-      </div>
-      <p class="panel-note" id="theme-note">Calculando la luz de tu ubicación…</p>
-    </aside>
-
     <section class="catalog-view" id="catalog-view" hidden>
-      <header class="catalog-heading">
-        <div><span class="eyebrow">ATLAS AUDIOVISUAL</span><h1>Catálogo mundial</h1><p>Todas las señales, también las que todavía no tienen coordenadas.</p></div>
-        <div class="catalog-total"><strong id="catalog-result-count">0</strong><span>fichas</span></div>
-      </header>
       <div class="catalog-grid" id="catalog-grid"></div>
-      <button class="load-more" id="catalog-more" hidden>Mostrar más fichas</button>
+      <div class="catalog-sentinel" id="catalog-sentinel" aria-hidden="true"></div>
       <div class="catalog-empty" id="catalog-empty" hidden><span>◎</span><strong>No hay coincidencias</strong><p>Prueba a cambiar los filtros.</p></div>
     </section>
 
@@ -146,7 +129,7 @@ const searchInput = byId<HTMLInputElement>("search-input");
 const stationCard = byId<HTMLElement>("station-card");
 const catalogView = byId<HTMLElement>("catalog-view");
 const catalogGrid = byId<HTMLElement>("catalog-grid");
-const catalogMore = byId<HTMLButtonElement>("catalog-more");
+const catalogSentinel = byId<HTMLElement>("catalog-sentinel");
 const playButton = byId<HTMLButtonElement>("play-button");
 const player = byId<HTMLElement>("player");
 const audio = byId<HTMLAudioElement>("audio");
@@ -171,7 +154,8 @@ let hls: Hls | null = null;
 let isPlaying = false;
 let playerVisible = true;
 let currentView: "map" | "catalog" = "map";
-let catalogRenderLimit = 240;
+const CATALOG_BATCH_SIZE = 360;
+let catalogRenderLimit = CATALOG_BATCH_SIZE;
 type MapMode = "satellite" | "boundaries" | "political" | "relief";
 let currentMapMode: MapMode = "satellite";
 let showGeographicLabels = true;
@@ -252,26 +236,27 @@ function stationCardMarkup(station: Station): string {
     ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.removeAttribute('hidden')"><span hidden>${escapeHtml(initials(station.name))}</span>`
     : `<span>${escapeHtml(initials(station.name))}</span>`;
   const tags = station.tags.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 3);
+  const tag = tags[0] || (isMappable(station) ? "Geolocalizada" : "Sin coordenadas");
   return `
     <button class="catalog-card ${selected?.id === station.id ? "is-selected" : ""}" data-station-id="${station.id}">
-      <span class="catalog-card__top"><span class="catalog-logo ${station.mediaType}">${logo}</span><i class="catalog-type ${station.mediaType}">${station.mediaType === "radio" ? "RADIO" : "TV"}</i></span>
-      <span class="catalog-card__body"><strong>${escapeHtml(station.name)}</strong><small>${escapeHtml([station.city, station.region, station.country].filter(Boolean).filter((value, index, list) => list.indexOf(value) === index).join(" · "))}</small></span>
-      <span class="catalog-card__tags">${tags.map((tag) => `<i>${escapeHtml(tag)}</i>`).join("") || `<i>${isMappable(station) ? "Geolocalizada" : "Sin coordenadas"}</i>`}</span>
-      <span class="catalog-card__status ${station.streamUrl ? "is-playable" : ""}">${station.streamUrl ? "Emisión disponible" : "Ficha catalogada"}</span>
+      <span class="catalog-logo ${station.mediaType}">${logo}</span>
+      <span class="catalog-card__content">
+        <span class="catalog-card__meta"><i class="catalog-type ${station.mediaType}">${station.mediaType === "radio" ? "RADIO" : "TV"}</i><small class="catalog-card__status ${station.streamUrl ? "is-playable" : ""}">${station.streamUrl ? "Emisión disponible" : "Ficha catalogada"}</small></span>
+        <strong>${escapeHtml(station.name)}</strong>
+        <span class="catalog-card__foot"><small>${escapeHtml(station.country)}</small><i>${escapeHtml(tag)}</i></span>
+      </span>
     </button>`;
 }
 
 function renderCatalog(items: Station[], reset = false): void {
   if (reset) {
-    catalogRenderLimit = 240;
+    catalogRenderLimit = CATALOG_BATCH_SIZE;
     catalogView.scrollTo({ top: 0 });
   }
   const visible = items.slice(0, catalogRenderLimit);
-  byId("catalog-result-count").textContent = items.length.toLocaleString("es-ES");
   catalogGrid.innerHTML = visible.map(stationCardMarkup).join("");
   byId("catalog-empty").hidden = items.length > 0;
-  catalogMore.hidden = visible.length >= items.length;
-  catalogMore.textContent = `Mostrar más · ${Math.min(240, items.length - visible.length).toLocaleString("es-ES")}`;
+  catalogSentinel.hidden = visible.length >= items.length;
 }
 
 function renderResults(resetCatalog = false): void {
@@ -370,7 +355,7 @@ function selectRelative(direction: number): void {
 
 function closePanels(): void {
   document.querySelectorAll<HTMLElement>(".tool-panel").forEach((panel) => { panel.hidden = true; });
-  ["filter-button", "layers-button", "theme-button"].forEach((id) => {
+  ["filter-button", "layers-button"].forEach((id) => {
     const button = byId<HTMLButtonElement>(id);
     button.classList.remove("is-open");
     button.setAttribute("aria-expanded", "false");
@@ -502,7 +487,7 @@ function initializeMap(): void {
     return;
   }
   const activeMap = map;
-  activeMap.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+  activeMap.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");
   activeMap.scrollZoom.setWheelZoomRate(1 / 260);
   activeMap.touchZoomRotate.enable();
   let booted = false;
@@ -552,7 +537,7 @@ function isDaylight(latitude: number, longitude: number, date = new Date()): boo
 
 function applyResolvedTheme(day: boolean, note: string): void {
   document.documentElement.classList.toggle("light-theme", day);
-  byId("theme-note").textContent = note;
+  document.documentElement.dataset.themeNote = note;
 }
 
 function resolveAutoTheme(): void {
@@ -575,10 +560,20 @@ function resolveAutoTheme(): void {
 function setThemeMode(mode: ThemeMode): void {
   themeMode = mode;
   localStorage.setItem("mediaworld-theme-mode", mode);
-  document.querySelectorAll<HTMLElement>("[data-theme-mode]").forEach((option) => option.classList.toggle("is-active", option.dataset.themeMode === mode));
   if (mode === "day") applyResolvedTheme(true, "Tema diurno · hueso cálido");
   else if (mode === "night") applyResolvedTheme(false, "Tema nocturno · azul profundo");
   else resolveAutoTheme();
+  const button = byId<HTMLButtonElement>("theme-button");
+  const next: Record<ThemeMode, ThemeMode> = { night: "auto", auto: "day", day: "night" };
+  const labels: Record<ThemeMode, string> = { night: "Noche", auto: "Automático", day: "Día" };
+  const paths: Record<ThemeMode, string> = {
+    night: '<path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/>',
+    auto: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16V4Z"/>',
+    day: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+  };
+  button.innerHTML = icon(paths[mode]);
+  button.title = `Tema: ${labels[mode]} · clic para ${labels[next[mode]]}`;
+  button.setAttribute("aria-label", button.title);
 }
 
 catalogGrid.addEventListener("click", (event) => {
@@ -587,7 +582,12 @@ catalogGrid.addEventListener("click", (event) => {
   const station = stations.find((item) => item.id === Number(card.dataset.stationId));
   if (station) showStation(station);
 });
-catalogMore.addEventListener("click", () => { catalogRenderLimit += 240; renderCatalog(filteredStations()); });
+const catalogObserver = new IntersectionObserver((entries) => {
+  if (currentView !== "catalog" || !entries.some((entry) => entry.isIntersecting) || catalogSentinel.hidden) return;
+  catalogRenderLimit += CATALOG_BATCH_SIZE;
+  renderCatalog(filteredStations());
+}, { root: catalogView, rootMargin: "700px 0px", threshold: 0 });
+catalogObserver.observe(catalogSentinel);
 searchInput.addEventListener("input", () => renderResults(true));
 countryFilter.addEventListener("change", () => { updateRegionFilter(); renderResults(true); });
 regionFilter.addEventListener("change", () => renderResults(true));
@@ -612,7 +612,10 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
 }));
 byId("filter-button").addEventListener("click", () => togglePanel("filter-panel", "filter-button"));
 byId("layers-button").addEventListener("click", () => togglePanel("layers-panel", "layers-button"));
-byId("theme-button").addEventListener("click", () => togglePanel("theme-panel", "theme-button"));
+byId("theme-button").addEventListener("click", () => {
+  const next: Record<ThemeMode, ThemeMode> = { night: "auto", auto: "day", day: "night" };
+  setThemeMode(next[themeMode]);
+});
 document.querySelectorAll("[data-close-panel]").forEach((button) => button.addEventListener("click", closePanels));
 byId("catalog-toggle").addEventListener("click", () => setView(currentView === "map" ? "catalog" : "map"));
 byId("player-toggle").addEventListener("click", () => {
@@ -652,7 +655,6 @@ labelsToggle.addEventListener("change", () => {
   showGeographicLabels = labelsToggle.checked;
   if (map && mapReady) applyLabelVisibility(map);
 });
-document.querySelectorAll<HTMLElement>("[data-theme-mode]").forEach((option) => option.addEventListener("click", () => setThemeMode(option.dataset.themeMode as ThemeMode)));
 byId("zoom-in").addEventListener("click", () => map?.zoomIn());
 byId("zoom-out").addEventListener("click", () => map?.zoomOut());
 byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
@@ -686,7 +688,7 @@ function showStats(stats: CatalogStats): void {
 }
 
 const storedTheme = localStorage.getItem("mediaworld-theme-mode");
-setThemeMode(storedTheme === "day" || storedTheme === "night" || storedTheme === "auto" ? storedTheme : "auto");
+setThemeMode(storedTheme === "day" || storedTheme === "night" || storedTheme === "auto" ? storedTheme : "night");
 window.setInterval(() => { if (themeMode === "auto") resolveAutoTheme(); }, 300000);
 updateLabelsControl();
 initializeMap();
