@@ -34,7 +34,7 @@ npm run preview
 
 `npm run build:db` regenera `public/data/mediaworld.sqlite` a partir de `data/stations.json` y `data/schema.sql`.
 
-`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para Europa, Asia, América completa, el Caribe y la Antártida. Incluye países soberanos y territorios dependientes disponibles en las fuentes. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
+`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para los 249 países y territorios ISO: Europa, Asia, América, África, Oceanía, el Caribe, la Antártida y los archipiélagos remotos del Atlántico, Pacífico e Índico. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
 
 ## Arquitectura de datos
 

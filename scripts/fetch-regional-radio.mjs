@@ -224,24 +224,23 @@ function matchAdministrativePlace(code, rawState) {
   ) || null;
 }
 
-async function fetchCountry(code) {
+async function fetchWorldCatalog() {
   if (cacheDirectory) {
-    try { return JSON.parse(await readFile(path.join(cacheDirectory, `radio-${code}.json`), "utf8")); } catch { /* Se descargará. */ }
+    try { return JSON.parse(await readFile(path.join(cacheDirectory, "radio-world.json"), "utf8")); } catch { /* Se descargará. */ }
   }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     for (const server of servers) {
       try {
-        const response = await fetch(`${server}/json/stations/bycountrycodeexact/${code}?hidebroken=true&order=name&reverse=false&limit=100000`, {
-          headers: { "User-Agent": "MediaWorld/0.4 (GitHub Pages catalog builder)" },
-          signal: AbortSignal.timeout(30_000)
+        const response = await fetch(`${server}/json/stations?hidebroken=true&order=name&reverse=false&limit=100000`, {
+          headers: { "User-Agent": "MediaWorld/0.5 (GitHub Pages world catalog builder)" },
+          signal: AbortSignal.timeout(90_000)
         });
         if (response.ok) return await response.json();
       } catch { /* Prueba el siguiente espejo. */ }
     }
     await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
   }
-  console.warn(`Aviso: no se pudo descargar temporalmente el catálogo ${code}`);
-  return [];
+  throw new Error("No se pudo descargar el catálogo mundial de radio");
 }
 
 function chooseLocation(station, code) {
@@ -272,13 +271,11 @@ function score(station) {
   return Number(station.lastcheckok) * 100000 + (station.geo_lat != null ? 20000 : 0) + Number(station.votes || 0) * 10 + Number(station.bitrate || 0);
 }
 
-const raw = [];
-const countryCodes = Object.keys(countries);
-for (let offset = 0; offset < countryCodes.length; offset += 4) {
-  const batch = countryCodes.slice(offset, offset + 4);
-  const results = await Promise.all(batch.map(async (code) => (await fetchCountry(code)).map((station) => ({ ...station, requestedCode: code }))));
-  raw.push(...results.flat());
-}
+const targetCodes = new Set(Object.keys(countries));
+const raw = (await fetchWorldCatalog()).map((station) => ({
+  ...station,
+  requestedCode: String(station.countrycode || "").toUpperCase() === "UK" ? "GB" : String(station.countrycode || "").toUpperCase()
+})).filter((station) => targetCodes.has(station.requestedCode));
 const unique = new Map();
 for (const station of raw) {
   if (!Number(station.lastcheckok) || !station.name || !(station.url_resolved || station.url)) continue;
