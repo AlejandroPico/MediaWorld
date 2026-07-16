@@ -119,20 +119,86 @@ async function loadCountryGeometries() {
   const response = await fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson");
   if (!response.ok) throw new Error(`No se pudieron validar las fronteras (${response.status})`);
   const world = await response.json();
-  return new Map(world.features.map((feature) => [feature.properties.ISO_A2_EH || feature.properties.ISO_A2, feature.geometry]));
+  const grouped = new Map();
+  for (const feature of world.features) {
+    const code = feature.properties.ISO_A2_EH || feature.properties.ISO_A2;
+    const geometries = grouped.get(code) || [];
+    geometries.push(feature.geometry);
+    grouped.set(code, geometries);
+  }
+  return grouped;
 }
 
 const countryGeometries = await loadCountryGeometries();
+
+async function loadAdministrativePlaces() {
+  const response = await fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson");
+  if (!response.ok) throw new Error(`No se pudieron cargar las regiones administrativas (${response.status})`);
+  const collection = await response.json();
+  const grouped = new Map();
+  for (const feature of collection.features) {
+    const properties = feature.properties || {};
+    const code = String(properties.iso_a2 || "").toUpperCase();
+    if (!countries[code]) continue;
+    const lat = Number(properties.latitude);
+    const lon = Number(properties.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const label = String(properties.region || properties.name || countries[code].name);
+    const aliases = [properties.name, properties.name_en, properties.name_local, properties.region]
+      .map((value) => normalize(String(value || "")))
+      .filter((value) => value.length >= 3);
+    for (const alias of new Set(aliases)) {
+      const key = `${code}:${alias}`;
+      const group = grouped.get(key) || { code, alias, label, lat: 0, lon: 0, count: 0 };
+      group.lat += lat;
+      group.lon += lon;
+      group.count += 1;
+      grouped.set(key, group);
+    }
+  }
+  const index = new Map();
+  for (const group of grouped.values()) {
+    const list = index.get(group.code) || [];
+    list.push({ key: group.alias, label: group.label, lat: group.lat / group.count, lon: group.lon / group.count });
+    index.set(group.code, list);
+  }
+  for (const list of index.values()) list.sort((a, b) => b.key.length - a.key.length);
+  return index;
+}
+
+const administrativePlaces = await loadAdministrativePlaces();
+
+const nameContainsPlace = (name, key) => name === key || name.startsWith(`${key} `) || name.endsWith(` ${key}`) || name.includes(` ${key} `);
+
+const conflictingCountryTokens = new Map([
+  ["venezuela", "VE"], ["colombia", "CO"], ["ecuador", "EC"], ["argentina", "AR"],
+  ["mexico", "MX"], ["peru", "PE"], ["chile", "CL"], ["bolivia", "BO"],
+  ["brasil", "BR"], ["brazil", "BR"], ["paraguay", "PY"], ["uruguay", "UY"]
+]);
+
+function matchAdministrativePlace(code, rawState) {
+  const state = normalize(rawState);
+  if (!state || state === normalize(countries[code].name)) return null;
+  return (administrativePlaces.get(code) || []).find((place) =>
+    state === place.key || state.startsWith(`${place.key} `) || state.endsWith(` ${place.key}`)
+  ) || null;
+}
 
 async function fetchCountry(code) {
   if (cacheDirectory) {
     try { return JSON.parse(await readFile(path.join(cacheDirectory, `radio-${code}.json`), "utf8")); } catch { /* Se descargará. */ }
   }
-  for (const server of servers) {
-    try {
-      const response = await fetch(`${server}/json/stations/bycountrycodeexact/${code}?hidebroken=true&order=name&reverse=false&limit=100000`, { headers: { "User-Agent": "MediaWorld/0.2 (GitHub Pages catalog builder)" } });
-      if (response.ok) return await response.json();
-    } catch { /* Prueba el siguiente espejo. */ }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (const server of servers) {
+      try {
+        const response = await fetch(`${server}/json/stations/bycountrycodeexact/${code}?hidebroken=true&order=name&reverse=false&limit=100000`, {
+          headers: { "User-Agent": "MediaWorld/0.4 (GitHub Pages catalog builder)" },
+          signal: AbortSignal.timeout(30_000)
+        });
+        if (response.ok) return await response.json();
+      } catch { /* Prueba el siguiente espejo. */ }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
   }
   console.warn(`Aviso: no se pudo descargar temporalmente el catálogo ${code}`);
   return [];
@@ -142,16 +208,21 @@ function chooseLocation(station, code) {
   const country = countries[code];
   const lat = Number(station.geo_lat);
   const lon = Number(station.geo_long);
-  const geometry = countryGeometries.get(code);
+  const geometries = countryGeometries.get(code) || [];
+  const isInsideCountry = (candidateLon, candidateLat) => geometries.some((geometry) => pointInGeometry(candidateLon, candidateLat, geometry));
   const nearSmallTerritory = Math.hypot(lat - country.lat, (lon - country.lon) * Math.cos(country.lat * Math.PI / 180)) < 1.1;
-  if (Number.isFinite(lat) && Number.isFinite(lon) && (pointInGeometry(lon, lat, geometry) || (!geometry && nearSmallTerritory))) {
+  if (Number.isFinite(lat) && Number.isFinite(lon) && (isInsideCountry(lon, lat) || (!geometries.length && nearSmallTerritory))) {
     return { lat, lon, label: station.state || country.name, precision: "exact" };
   }
   const name = normalize(station.name);
   const matched = places
-    .filter((place) => place.key.length >= 4 && name.includes(place.key))
+    .filter((place) => place.key.length >= 4 && nameContainsPlace(name, place.key) && (!geometries.length || isInsideCountry(place.lon, place.lat)))
     .sort((a, b) => b.key.length - a.key.length)[0];
   if (matched) return { lat: matched.lat, lon: matched.lon, label: matched.label, precision: "city" };
+  const conflictingToken = [...conflictingCountryTokens].find(([token, tokenCode]) => tokenCode !== code && nameContainsPlace(name, token));
+  if (conflictingToken) return { lat: country.lat, lon: country.lon, label: country.name, precision: "country" };
+  const administrative = matchAdministrativePlace(code, station.state);
+  if (administrative) return { lat: administrative.lat, lon: administrative.lon, label: administrative.label, precision: "region" };
   return { lat: country.lat, lon: country.lon, label: country.name, precision: "country" };
 }
 
@@ -161,8 +232,8 @@ function score(station) {
 
 const raw = [];
 const countryCodes = Object.keys(countries);
-for (let offset = 0; offset < countryCodes.length; offset += 6) {
-  const batch = countryCodes.slice(offset, offset + 6);
+for (let offset = 0; offset < countryCodes.length; offset += 4) {
+  const batch = countryCodes.slice(offset, offset + 4);
   const results = await Promise.all(batch.map(async (code) => (await fetchCountry(code)).map((station) => ({ ...station, requestedCode: code }))));
   raw.push(...results.flat());
 }

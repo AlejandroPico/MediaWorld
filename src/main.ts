@@ -22,10 +22,12 @@ app.innerHTML = `
           <span>MAPA</span>
           <select id="map-mode" aria-label="Presentación del mapamundi">
             <option value="satellite">Satélite 3D</option>
+            <option value="boundaries">Político plano</option>
             <option value="political">Mapa / carreteras</option>
             <option value="relief">Relieve</option>
           </select>
         </label>
+        <button class="icon-button label-toggle is-active" id="labels-button" title="Ocultar nombres geográficos" aria-label="Ocultar nombres geográficos" aria-pressed="true">Aa</button>
         <button class="icon-button" id="locate-button" title="Mi ubicación" aria-label="Mi ubicación">⌾</button>
         <button class="icon-button" id="theme-button" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
         <button class="about-button" id="about-button">Acerca de</button>
@@ -46,6 +48,12 @@ app.innerHTML = `
         <button class="media-tab is-active" data-type="all"><span class="all-dot"></span> Todo <b id="all-count">0</b></button>
         <button class="media-tab is-active" data-type="radio"><span class="radio-dot"></span> Radio <b id="radio-count">0</b></button>
         <button class="media-tab is-active" data-type="tv"><span class="tv-dot"></span> TV <b id="tv-count">0</b></button>
+      </div>
+      <div class="filter-grid" aria-label="Filtros del catálogo">
+        <label><span>País</span><select id="country-filter"><option value="">Todos</option></select></label>
+        <label><span>Región</span><select id="region-filter" disabled><option value="">Todas</option></select></label>
+        <label><span>Emisión</span><select id="availability-filter"><option value="all">Todas</option><option value="playable">Reproducibles</option><option value="catalogued">Web / catálogo</option></select></label>
+        <label><span>Ubicación</span><select id="location-filter"><option value="all">Todas</option><option value="mapped">Con punto</option><option value="unmapped">Sin coordenadas</option></select></label>
       </div>
       <div class="nearby-heading"><span id="result-title">Emisoras visibles</span><small id="result-count">0 resultados</small></div>
       <div class="station-list" id="station-list"></div>
@@ -118,6 +126,10 @@ const playerLogo = byId<HTMLElement>("player-logo");
 const playerTitle = byId<HTMLElement>("player-title");
 const playerPlace = byId<HTMLElement>("player-place");
 const playerKicker = byId<HTMLElement>("player-kicker");
+const countryFilter = byId<HTMLSelectElement>("country-filter");
+const regionFilter = byId<HTMLSelectElement>("region-filter");
+const availabilityFilter = byId<HTMLSelectElement>("availability-filter");
+const locationFilter = byId<HTMLSelectElement>("location-filter");
 
 let stations: Station[] = [];
 let selected: Station | null = null;
@@ -125,8 +137,9 @@ let selectedIndex = -1;
 let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
-type MapMode = "satellite" | "political" | "relief";
+type MapMode = "satellite" | "boundaries" | "political" | "relief";
 let currentMapMode: MapMode = "satellite";
+let showGeographicLabels = true;
 let map: maplibregl.Map | null = null;
 let mapReady = false;
 
@@ -135,6 +148,7 @@ const SATELLITE_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/Wo
 const RELIEF_TILES = "https://a.tile.opentopomap.org/{z}/{x}/{y}.png";
 const TERRAIN_TILEJSON = "https://tiles.mapterhorn.com/tilejson.json";
 const PLACES_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_populated_places_simple.geojson";
+const COUNTRIES_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson";
 
 function createBaseMapStyle(): StyleSpecification {
   return {
@@ -185,13 +199,21 @@ function filteredStations(): Station[] {
   const query = searchInput.value.trim().toLocaleLowerCase("es");
   return stations.filter((station) => {
     const matchesType = enabledTypes.has(station.mediaType);
+    const matchesCountry = !countryFilter.value || station.country === countryFilter.value;
+    const matchesRegion = !regionFilter.value || station.region === regionFilter.value || station.city === regionFilter.value;
+    const matchesAvailability = availabilityFilter.value === "all" || (availabilityFilter.value === "playable" ? Boolean(station.streamUrl) : !station.streamUrl);
+    const matchesLocation = locationFilter.value === "all" || (locationFilter.value === "mapped" ? isMappable(station) : !isMappable(station));
     const haystack = `${station.name} ${station.city} ${station.region} ${station.country} ${station.language}`.toLocaleLowerCase("es");
-    return matchesType && (!query || haystack.includes(query));
+    return matchesType && matchesCountry && matchesRegion && matchesAvailability && matchesLocation && (!query || haystack.includes(query));
   });
 }
 
+function hasActiveCatalogFilters(): boolean {
+  return Boolean(searchInput.value.trim() || countryFilter.value || regionFilter.value || availabilityFilter.value !== "all" || locationFilter.value !== "all");
+}
+
 function visibleStations(items: Station[]): Station[] {
-  if (searchInput.value.trim()) return items;
+  if (hasActiveCatalogFilters()) return items;
   if (!map || !mapReady) return items;
   const bounds = map.getBounds();
   const visible = items.filter((station) => isMappable(station) && bounds.contains([station.longitude, station.latitude]));
@@ -206,16 +228,32 @@ function updateMapData(items: Station[]): void {
 
 function renderList(): void {
   const filtered = filteredStations();
-  const items = visibleStations(filtered).slice(0, 60);
-  byId("result-count").textContent = `${items.length} ${items.length === 1 ? "resultado" : "resultados"}`;
-  byId("result-title").textContent = searchInput.value.trim() ? "Resultados de búsqueda" : "Emisoras visibles";
+  const visible = visibleStations(filtered);
+  const items = visible.slice(0, 80);
+  byId("result-count").textContent = `${visible.length} ${visible.length === 1 ? "resultado" : "resultados"}`;
+  byId("result-title").textContent = hasActiveCatalogFilters() ? "Resultados filtrados" : "Emisoras visibles";
   stationList.innerHTML = items.length ? items.map((station) => `
     <button class="station-row ${selected?.id === station.id ? "is-selected" : ""}" data-station-id="${station.id}">
       <span class="station-row__icon ${station.mediaType}">${station.mediaType === "radio" ? "◉" : "▣"}</span>
-      <span><strong>${escapeHtml(station.name)}</strong><small>${escapeHtml(station.city)} · ${escapeHtml(station.country)}</small></span>
+      <span><strong>${escapeHtml(station.name)}</strong><small>${escapeHtml(station.city)} · ${escapeHtml(station.country)}${isMappable(station) ? "" : " · sin coordenadas"}</small></span>
       <i class="${station.streamUrl ? "available" : "catalogued"}" title="${station.streamUrl ? "Emisión disponible" : "Ficha catalogada"}"></i>
     </button>`).join("") : `<div class="empty-state"><span>◎</span><strong>Sin señales aquí</strong><p>Prueba otra búsqueda o aléjate en el mapa.</p></div>`;
   updateMapData(filtered);
+}
+
+function populateCountryFilter(): void {
+  const countries = [...new Set(stations.map((station) => station.country))].sort((a, b) => a.localeCompare(b, "es"));
+  countryFilter.innerHTML = `<option value="">Todos</option>${countries.map((country) => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`).join("")}`;
+}
+
+function updateRegionFilter(): void {
+  const current = regionFilter.value;
+  const regions = countryFilter.value
+    ? [...new Set(stations.filter((station) => station.country === countryFilter.value).map((station) => station.region).filter((region) => region && region !== countryFilter.value))].sort((a, b) => a.localeCompare(b, "es"))
+    : [];
+  regionFilter.innerHTML = `<option value="">Todas</option>${regions.map((region) => `<option value="${escapeHtml(region)}">${escapeHtml(region)}</option>`).join("")}`;
+  regionFilter.disabled = !countryFilter.value;
+  if (regions.includes(current)) regionFilter.value = current;
 }
 
 function showStation(station: Station, fly = false): void {
@@ -319,6 +357,44 @@ function addBaseLayers(activeMap: maplibregl.Map): void {
     id: "terrain-hillshade", type: "hillshade", source: "hillshade-dem", layout: { visibility: "none" },
     paint: { "hillshade-shadow-color": "#172231", "hillshade-highlight-color": "#f4e8c8", "hillshade-accent-color": "#42546a", "hillshade-exaggeration": .55 }
   });
+  if (!activeMap.getSource("country-boundaries")) activeMap.addSource("country-boundaries", {
+    type: "geojson", data: COUNTRIES_URL, attribution: "Fronteras © Natural Earth"
+  });
+  if (!activeMap.getLayer("boundaries-fill")) activeMap.addLayer({
+    id: "boundaries-fill", type: "fill", source: "country-boundaries", layout: { visibility: "none" },
+    paint: { "fill-color": "#172633", "fill-opacity": .98 }
+  });
+  if (!activeMap.getLayer("boundaries-line")) activeMap.addLayer({
+    id: "boundaries-line", type: "line", source: "country-boundaries", layout: { visibility: "none" },
+    paint: {
+      "line-color": "#8ca4b6",
+      "line-opacity": .82,
+      "line-width": ["interpolate", ["linear"], ["zoom"], 0, .45, 5, 1, 10, 1.8]
+    }
+  });
+  if (!activeMap.getLayer("country-labels")) activeMap.addLayer({
+    id: "country-labels", type: "symbol", source: "country-boundaries", minzoom: 0, maxzoom: 8,
+    layout: {
+      visibility: "none",
+      "text-field": ["coalesce", ["get", "NAME_ES"], ["get", "ADMIN"], ["get", "NAME"]],
+      "text-font": ["Open Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 0, 8, 4, 12, 7, 15],
+      "text-transform": "uppercase",
+      "text-letter-spacing": .08,
+      "text-allow-overlap": false
+    },
+    paint: { "text-color": "#dbe7ef", "text-halo-color": "rgba(8,18,27,.94)", "text-halo-width": 1.4 }
+  });
+}
+
+function applyLabelVisibility(activeMap: maplibregl.Map): void {
+  if (activeMap.getLayer("place-labels")) activeMap.setLayoutProperty("place-labels", "visibility", showGeographicLabels && currentMapMode !== "boundaries" ? "visible" : "none");
+  if (activeMap.getLayer("country-labels")) activeMap.setLayoutProperty("country-labels", "visibility", showGeographicLabels && currentMapMode === "boundaries" ? "visible" : "none");
+  const button = byId<HTMLButtonElement>("labels-button");
+  button.classList.toggle("is-active", showGeographicLabels);
+  button.setAttribute("aria-pressed", String(showGeographicLabels));
+  button.title = showGeographicLabels ? "Ocultar nombres geográficos" : "Mostrar nombres geográficos";
+  button.setAttribute("aria-label", button.title);
 }
 
 function applyMapMode(activeMap: maplibregl.Map, mode: MapMode): void {
@@ -326,7 +402,11 @@ function applyMapMode(activeMap: maplibregl.Map, mode: MapMode): void {
   activeMap.setLayoutProperty("political-base", "visibility", mode === "political" ? "visible" : "none");
   activeMap.setLayoutProperty("relief-base", "visibility", mode === "relief" ? "visible" : "none");
   activeMap.setLayoutProperty("terrain-hillshade", "visibility", mode === "relief" ? "visible" : "none");
-  try { activeMap.setTerrain({ source: "terrain-dem", exaggeration: mode === "relief" ? 1.2 : 1.08 }); } catch { /* La esfera sigue disponible sin elevación. */ }
+  activeMap.setLayoutProperty("boundaries-fill", "visibility", mode === "boundaries" ? "visible" : "none");
+  activeMap.setLayoutProperty("boundaries-line", "visibility", mode === "boundaries" ? "visible" : "none");
+  try { activeMap.setTerrain(mode === "boundaries" ? null : { source: "terrain-dem", exaggeration: mode === "relief" ? 1.2 : 1.08 }); } catch { /* La esfera sigue disponible sin elevación. */ }
+  if (mode === "boundaries") activeMap.easeTo({ pitch: 0, duration: 450 });
+  applyLabelVisibility(activeMap);
 }
 
 function addPlaces(activeMap: maplibregl.Map): void {
@@ -406,8 +486,8 @@ function initializeMap(): void {
     try {
       activeMap.setProjection({ type: "globe" });
       addBaseLayers(activeMap);
-      applyMapMode(activeMap, currentMapMode);
       addPlaces(activeMap);
+      applyMapMode(activeMap, currentMapMode);
       mapReady = true;
       installStationLayers();
       activeMap.on("click", "station-points", (event: MapLayerMouseEvent) => {
@@ -441,6 +521,10 @@ stationList.addEventListener("click", (event) => {
   if (station) showStation(station, true);
 });
 searchInput.addEventListener("input", renderList);
+countryFilter.addEventListener("change", () => { updateRegionFilter(); renderList(); });
+regionFilter.addEventListener("change", renderList);
+availabilityFilter.addEventListener("change", renderList);
+locationFilter.addEventListener("change", renderList);
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); searchInput.focus(); }
   if (event.key === "Escape") { searchInput.value = ""; searchInput.blur(); renderList(); }
@@ -459,7 +543,16 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
   renderList();
 }));
 byId("home-button").addEventListener("click", () => map?.flyTo({ center: [2, 30], zoom: 1.2, pitch: 0, bearing: 0 }));
-byId("reset-button").addEventListener("click", () => { searchInput.value = ""; enabledTypes = new Set(["radio", "tv"]); document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active")); renderList(); });
+byId("reset-button").addEventListener("click", () => {
+  searchInput.value = "";
+  countryFilter.value = "";
+  availabilityFilter.value = "all";
+  locationFilter.value = "all";
+  updateRegionFilter();
+  enabledTypes = new Set(["radio", "tv"]);
+  document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active"));
+  renderList();
+});
 byId("zoom-in").addEventListener("click", () => map?.zoomIn());
 byId("zoom-out").addEventListener("click", () => map?.zoomOut());
 byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
@@ -467,9 +560,13 @@ byId<HTMLSelectElement>("map-mode").addEventListener("change", (event) => {
   currentMapMode = (event.target as HTMLSelectElement).value as MapMode;
   if (map && mapReady) {
     applyMapMode(map, currentMapMode);
-    const label = { satellite: "Satélite", political: "Mapa / carreteras", relief: "Relieve" }[currentMapMode];
+    const label = { satellite: "Satélite", boundaries: "Político plano", political: "Mapa / carreteras", relief: "Relieve" }[currentMapMode];
     byId("map-engine-status").textContent = `Esfera 3D · ${label}`;
   }
+});
+byId("labels-button").addEventListener("click", () => {
+  showGeographicLabels = !showGeographicLabels;
+  if (map && mapReady) applyLabelVisibility(map);
 });
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
@@ -487,6 +584,8 @@ async function boot(): Promise<void> {
   try {
     const catalog = await loadCatalog();
     stations = catalog.stations;
+    populateCountryFilter();
+    updateRegionFilter();
     showStats(catalog.stats);
     if (map?.loaded() && mapReady) installStationLayers();
     renderList();

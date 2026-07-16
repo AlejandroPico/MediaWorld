@@ -32,6 +32,8 @@ button { color: inherit; }
 .icon-button { width: 35px; font-size: 18px; }
 .about-button { padding: 0 14px; font-size: 11px; color: #c2d1dc; }
 .icon-button:hover, .about-button:hover { background: rgba(255,255,255,.09); }
+.label-toggle { font-size: 10px; font-weight: 700; letter-spacing: -.4px; color: #6f8798; }
+.label-toggle.is-active { color: #eaf5fb; background: rgba(102,183,255,.11); border-color: rgba(102,183,255,.34); }
 .explorer { position: absolute; z-index: 4; top: 100px; bottom: 16px; left: 16px; width: 344px; border-radius: 17px; display: flex; flex-direction: column; transition: transform .3s ease; }
 .explorer.is-collapsed { transform: translateX(calc(-100% - 16px)); }
 .explorer.is-collapsed .collapse-button { transform: translateX(51px) rotate(180deg); background: var(--glass-strong); }
@@ -48,6 +50,12 @@ kbd { border: 1px solid var(--line); border-radius: 5px; padding: 3px 5px; font:
 .media-tab { border: 1px solid var(--line); border-radius: 8px; height: 34px; background: transparent; color: #7f94a3; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .media-tab b { font-size: 9px; padding: 2px 4px; background: rgba(255,255,255,.06); border-radius: 4px; }
 .media-tab.is-active { color: #eaf4fa; background: rgba(255,255,255,.06); border-color: rgba(158,202,230,.3); }
+.filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 10px 14px 11px; border-bottom: 1px solid var(--line); }
+.filter-grid label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 5px; height: 29px; border: 1px solid var(--line); background: rgba(2,9,17,.3); border-radius: 7px; padding: 0 6px; }
+.filter-grid label > span { color: #678397; font-size: 7px; letter-spacing: .5px; text-transform: uppercase; }
+.filter-grid select { min-width: 0; width: 100%; border: 0; outline: 0; color: #bdccd6; background: transparent; font-size: 8px; cursor: pointer; }
+.filter-grid select:disabled { color: #536a7a; cursor: default; }
+.filter-grid option { color: #eaf4fa; background: #091725; }
 .all-dot, .radio-dot, .tv-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #71aee0; }
 .radio-dot { background: var(--radio); }
 .tv-dot { background: var(--tv); border-radius: 2px; }
@@ -135,6 +143,8 @@ dialog > p { color: #9eb1bf; font-size: 12px; line-height: 1.65; }
 .light-theme body { color: #142a39; }
 .light-theme .searchbox { background: rgba(255,255,255,.6); }
 .light-theme .searchbox input { color: #183143; }
+.light-theme .filter-grid label { background: rgba(255,255,255,.48); }
+.light-theme .filter-grid select { color: #29475a; }
 .light-theme .station-row strong, .light-theme .now-playing strong, .light-theme h1 { color: #173043; }
 .light-theme .maplibregl-ctrl-attrib { color: #38536a !important; }
 

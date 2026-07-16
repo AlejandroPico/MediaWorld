@@ -5,10 +5,11 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 ## Primera versión
 
 - Globo 3D MapLibre con fotografía satelital Esri, relieve y zoom cartográfico hasta calle, siguiendo el mismo motor utilizado en CAMS.
-- Rótulos geográficos integrados en el mapa y nombres de emisora reservados para niveles de zoom cercanos.
+- Rótulos geográficos con control independiente para ocultarlos y nombres de emisora reservados para niveles de zoom cercanos.
+- Presentación política minimalista con fronteras y nombres de países, además de satélite, carreteras y relieve.
 - Puntos independientes para radio y televisión, visibles a distancia y sin mostrar nombres hasta un zoom cercano.
 - Búsqueda por emisora, ciudad, región, país o idioma.
-- Filtros independientes para radio y televisión.
+- Filtros por radio/televisión, país, región, disponibilidad de emisión y presencia de coordenadas.
 - Fichas editoriales con alcance, idioma, localización y web oficial.
 - Reproductor minimalista de audio y vídeo sin reproducción automática.
 - Catálogo SQLite real cargado y consultado dentro del navegador mediante WebAssembly.
@@ -33,7 +34,7 @@ npm run preview
 
 `npm run build:db` regenera `public/data/mediaworld.sqlite` a partir de `data/stations.json` y `data/schema.sql`.
 
-`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para el conjunto de Europa, Groenlandia, Rusia, el Cáucaso y Turquía. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
+`npm run catalog:refresh` actualiza radios desde Radio Browser y canales de televisión desde IPTV-org para Europa y Asia, incluidas Rusia, el Cáucaso, Oriente Medio, Asia Central, el subcontinente indio y Asia oriental y sudoriental. Los resultados se normalizan, deduplican y guardan en `data/regional-radio.json` y `data/regional-tv.json` antes de compilar SQLite.
 
 ## Arquitectura de datos
 
@@ -41,11 +42,11 @@ GitHub Pages no ejecuta procesos de servidor. Por eso SQLite se distribuye como 
 
 Una ficha `catalogued` confirma la inclusión enciclopédica, no la disponibilidad de una emisión. Solamente las fichas con una URL verificada o marcadas expresamente como demostración habilitan el botón de reproducción.
 
-El mapa no inventa coordenadas para completar cobertura. Las posiciones declaradas se comprueban contra las fronteras terrestres de Natural Earth; las inferencias solo se aceptan cuando el nombre de la señal contiene una localidad reconocida. Las fichas nacionales sin coordenadas fiables permanecen en la búsqueda y en SQLite, pero no generan puntos ni desplazan el visor.
+El mapa no inventa coordenadas para completar cobertura. Las posiciones declaradas se comprueban contra las fronteras terrestres de Natural Earth; las inferencias solo se aceptan cuando el nombre o la región declarada de la señal coincide con una localidad o división administrativa oficial. Las fichas nacionales sin coordenadas fiables permanecen en la búsqueda y en SQLite, se pueden aislar con el filtro «Sin coordenadas», pero no generan puntos ni desplazan el visor.
 
 ## Cartografía y atribución
 
-La interfaz reproduce el arranque cartográfico de CAMS: MapLibre GL JS espera a que el estilo esté listo y entonces activa la proyección `globe`. Incluye fotografía satelital Esri World Imagery, terreno Mapterhorn, mapa de OpenStreetMap, relieve OpenTopoMap y rótulos de Natural Earth. Las atribuciones permanecen visibles en el visor.
+La interfaz reproduce el arranque cartográfico de CAMS: MapLibre GL JS espera a que el estilo esté listo y entonces activa la proyección `globe`. Incluye fotografía satelital Esri World Imagery, terreno Mapterhorn, mapa de OpenStreetMap, relieve OpenTopoMap, fronteras y rótulos de Natural Earth. Las atribuciones permanecen visibles en el visor.
 
 ## Estado
 

@@ -36,7 +36,39 @@ const cityAliases = [
 ];
 
 const normalize = (value = "") => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const nameContainsPlace = (name, key) => name === key || name.startsWith(`${key} `) || name.endsWith(` ${key}`) || name.includes(` ${key} `);
 cityAliases.push(...Object.values(countries).map((country) => [normalize(country.capital), country.capital]));
+
+const genericAdministrativeNames = new Set([
+  "central", "eastern", "western", "northern", "southern", "north", "south", "east", "west",
+  "region", "province", "district", "oblast", "republic", "territory", "autonomous"
+]);
+
+async function loadAdministrativePlaces() {
+  const response = await fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson");
+  if (!response.ok) throw new Error(`No se pudieron cargar las regiones administrativas (${response.status})`);
+  const collection = await response.json();
+  const index = new Map();
+  for (const feature of collection.features) {
+    const properties = feature.properties || {};
+    const code = String(properties.iso_a2 || "").toUpperCase();
+    if (!Object.values(countries).some((country) => country.countryCode === code)) continue;
+    const lat = Number(properties.latitude);
+    const lon = Number(properties.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const label = String(properties.region || properties.name || "").trim();
+    const aliases = [properties.name, properties.name_en, properties.name_local, properties.region]
+      .map((value) => normalize(String(value || "")))
+      .filter((value) => value.length >= 4 && !genericAdministrativeNames.has(value));
+    const list = index.get(code) || [];
+    for (const alias of new Set(aliases)) list.push({ key: alias, label, lat, lon });
+    index.set(code, list);
+  }
+  for (const list of index.values()) list.sort((a, b) => b.key.length - a.key.length);
+  return index;
+}
+
+const administrativePlaces = await loadAdministrativePlaces();
 
 async function getJson(name) {
   const response = await fetch(`${api}/${name}.json`, { headers: { "User-Agent": "MediaWorld/0.3 catalog builder" } });
@@ -66,11 +98,15 @@ function streamScore(stream) {
 function locate(channel) {
   const country = countries[channel.country];
   const name = normalize(`${channel.name} ${(channel.alt_names || []).join(" ")}`);
-  const matched = cityAliases.find(([alias]) => name.includes(alias));
+  const matched = cityAliases.find(([alias]) => alias.length >= 4 && nameContainsPlace(name, alias));
   if (matched) {
     const anchor = country.anchors.find(([label]) => normalize(label) === normalize(matched[1]));
     if (anchor) return { lat: anchor[1], lon: anchor[2], city: anchor[0], precision: "city" };
   }
+  const administrative = (administrativePlaces.get(country.countryCode) || []).find((place) =>
+    nameContainsPlace(name, place.key)
+  );
+  if (administrative) return { lat: administrative.lat, lon: administrative.lon, city: administrative.label, precision: "region" };
   return { lat: country.lat, lon: country.lon, city: country.name, precision: "country" };
 }
 
@@ -95,8 +131,8 @@ const output = allChannels
       latitude: Number(location.lat.toFixed(6)),
       longitude: Number(location.lon.toFixed(6)),
       language: (feed?.languages || []).join(", ") || "Sin especificar",
-      scope: location.precision === "city" ? "Local / regional" : "Nacional / internacional",
-      description: `Canal catalogado por IPTV-org${chosen?.quality ? ` · ${chosen.quality}` : ""}. ${location.precision === "city" ? "Localidad inferida del nombre" : "Sin coordenadas precisas; no se muestra en el mapa"}.`,
+      scope: location.precision === "country" ? "Nacional / internacional" : "Local / regional",
+      description: `Canal catalogado por IPTV-org${chosen?.quality ? ` · ${chosen.quality}` : ""}. ${{ city: "Localidad inferida del nombre", region: "Región administrativa inferida del nombre", country: "Sin coordenadas precisas; no se muestra en el mapa" }[location.precision]}.`,
       websiteUrl: String(channel.website || ""),
       streamUrl,
       streamFormat: /\.m3u8(?:$|\?)/i.test(streamUrl) ? "hls" : "video",
