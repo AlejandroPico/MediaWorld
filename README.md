@@ -8,10 +8,13 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Rótulos geográficos con control independiente para ocultarlos y nombres de emisora reservados para niveles de zoom cercanos.
 - Presentación política minimalista con fronteras y nombres de países, además de satélite, carreteras y relieve.
 - Puntos independientes para radio y televisión, visibles a distancia y sin mostrar nombres hasta un zoom cercano.
-- Búsqueda por emisora, ciudad, región, país o idioma.
-- Filtros por radio/televisión, país, región, disponibilidad de emisión y presencia de coordenadas.
+- Visor principal limpio, sin barras permanentes: filtros, capas, tema, reproductor y catálogo viven en una botonera flotante.
+- Búsqueda por emisora, ciudad, región, país, idioma o etiqueta.
+- Filtros compartidos por radio/televisión, país, región, disponibilidad de emisión y presencia de coordenadas.
 - Fichas editoriales con alcance, idioma, localización y web oficial.
-- Reproductor minimalista de audio y vídeo sin reproducción automática.
+- Catálogo mundial independiente en tarjetas, con acceso progresivo a todas las fichas, incluidas las que no tienen coordenadas.
+- Reproductor minimalista de audio y vídeo, visible por defecto, ocultable sin detener la emisión y sin reproducción automática.
+- Temas día, noche y automático según la luz solar de la ubicación del usuario; el tema diurno usa una paleta hueso.
 - Catálogo SQLite real cargado y consultado dentro del navegador mediante WebAssembly.
 - Diseño adaptable a escritorio y móvil, con temas oscuro y claro.
 - Despliegue automático en GitHub Pages.
@@ -46,7 +49,7 @@ El mapa no inventa coordenadas para completar cobertura. Las posiciones declarad
 
 ## Cartografía y atribución
 
-La interfaz reproduce el arranque cartográfico de CAMS: MapLibre GL JS espera a que el estilo esté listo y entonces activa la proyección `globe`. Incluye fotografía satelital Esri World Imagery, terreno Mapterhorn, mapa de OpenStreetMap, relieve OpenTopoMap, fronteras y rótulos de Natural Earth. Las atribuciones permanecen visibles en el visor.
+La interfaz reproduce el arranque cartográfico de CAMS: MapLibre GL JS espera a que el estilo esté listo y entonces activa la proyección `globe`. Incluye fotografía satelital Esri World Imagery, terreno Mapterhorn, mapa de OpenStreetMap, relieve OpenTopoMap, fronteras y rótulos de Natural Earth. Las atribuciones obligatorias permanecen visibles de forma discreta en la esquina inferior izquierda.
 
 ## Estado
 
