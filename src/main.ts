@@ -117,19 +117,25 @@ let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
 
-const map = new maplibregl.Map({
-  container: "map",
-  style: "https://tiles.openfreemap.org/styles/liberty",
-  center: [8, 25],
-  zoom: 1.55,
-  minZoom: 1.15,
-  maxZoom: 19,
-  pitch: 0,
-  attributionControl: false,
-  renderWorldCopies: false
-});
-map.setProjection({ type: "globe" });
-map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+let map: maplibregl.Map | null = null;
+try {
+  map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [8, 25],
+    zoom: 1.55,
+    minZoom: 1.15,
+    maxZoom: 19,
+    pitch: 0,
+    attributionControl: false,
+    renderWorldCopies: false
+  });
+  map.setProjection({ type: "globe" });
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+} catch {
+  byId("map").innerHTML = `<div class="map-fallback"><span>◎</span><strong>Vista 3D no disponible</strong><p>El catálogo sigue operativo. Activa la aceleración gráfica del navegador para ver el globo.</p></div>`;
+  document.documentElement.classList.add("no-webgl");
+}
 
 const stationToFeature = (station: Station): GeoJSON.Feature<GeoJSON.Point> => ({
   type: "Feature",
@@ -152,13 +158,14 @@ function filteredStations(): Station[] {
 
 function visibleStations(items: Station[]): Station[] {
   if (searchInput.value.trim()) return items;
+  if (!map) return items;
   const bounds = map.getBounds();
   const visible = items.filter((station) => bounds.contains([station.longitude, station.latitude]));
   return visible.length ? visible : items;
 }
 
 function updateMapData(items: Station[]): void {
-  const source = map.getSource("stations") as GeoJSONSource | undefined;
+  const source = map?.getSource("stations") as GeoJSONSource | undefined;
   source?.setData({ type: "FeatureCollection", features: items.map(stationToFeature) });
 }
 
@@ -200,7 +207,7 @@ function showStation(station: Station, fly = false): void {
   playButton.title = station.streamUrl ? "Reproducir" : "Esta ficha todavía no tiene emisión verificada";
   livePill.textContent = station.streamUrl ? "LISTO" : "CATALOGADA";
   stopMedia();
-  if (fly) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 6), duration: 1400 });
+  if (fly && map) map.flyTo({ center: [station.longitude, station.latitude], zoom: Math.max(map.getZoom(), 6), duration: 1400 });
   renderList();
 }
 
@@ -250,44 +257,47 @@ function selectRelative(direction: number): void {
 function applyTheme(): void {
   const isLight = document.documentElement.classList.toggle("light-theme");
   localStorage.setItem("mediaworld-theme", isLight ? "light" : "dark");
+  if (!map) return;
   map.setStyle(isLight ? "https://tiles.openfreemap.org/styles/positron" : "https://tiles.openfreemap.org/styles/liberty");
   map.once("style.load", installStationLayers);
 }
 
 function installStationLayers(): void {
-  if (map.getSource("stations")) return;
-  map.addSource("stations", {
+  const activeMap = map;
+  if (!activeMap || activeMap.getSource("stations")) return;
+  activeMap.addSource("stations", {
     type: "geojson",
     data: { type: "FeatureCollection", features: filteredStations().map(stationToFeature) },
     cluster: true,
     clusterMaxZoom: 11,
     clusterRadius: 42
   });
-  map.addLayer({ id: "station-clusters-halo", type: "circle", source: "stations", filter: ["has", "point_count"], paint: { "circle-color": "rgba(8,18,31,.7)", "circle-radius": ["step", ["get", "point_count"], 20, 10, 26, 30, 34], "circle-stroke-color": "rgba(255,255,255,.38)", "circle-stroke-width": 1 } });
-  map.addLayer({ id: "station-clusters", type: "symbol", source: "stations", filter: ["has", "point_count"], layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 12 }, paint: { "text-color": "#ffffff" } });
-  map.addLayer({ id: "station-points", type: "circle", source: "stations", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 5, 8, 8, 14, 11], "circle-color": ["match", ["get", "mediaType"], "radio", "#23d6c7", "#ff668f"], "circle-stroke-color": "rgba(5,14,25,.9)", "circle-stroke-width": 2, "circle-opacity": 0.95 } });
-  map.addLayer({ id: "station-labels", type: "symbol", source: "stations", minzoom: 5.5, filter: ["!", ["has", "point_count"]], layout: { "text-field": ["get", "name"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-optional": true }, paint: { "text-color": "#ffffff", "text-halo-color": "rgba(4,12,22,.9)", "text-halo-width": 1.5 } });
+  activeMap.addLayer({ id: "station-clusters-halo", type: "circle", source: "stations", filter: ["has", "point_count"], paint: { "circle-color": "rgba(8,18,31,.7)", "circle-radius": ["step", ["get", "point_count"], 20, 10, 26, 30, 34], "circle-stroke-color": "rgba(255,255,255,.38)", "circle-stroke-width": 1 } });
+  activeMap.addLayer({ id: "station-clusters", type: "symbol", source: "stations", filter: ["has", "point_count"], layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 12 }, paint: { "text-color": "#ffffff" } });
+  activeMap.addLayer({ id: "station-points", type: "circle", source: "stations", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 5, 8, 8, 14, 11], "circle-color": ["match", ["get", "mediaType"], "radio", "#23d6c7", "#ff668f"], "circle-stroke-color": "rgba(5,14,25,.9)", "circle-stroke-width": 2, "circle-opacity": 0.95 } });
+  activeMap.addLayer({ id: "station-labels", type: "symbol", source: "stations", minzoom: 5.5, filter: ["!", ["has", "point_count"]], layout: { "text-field": ["get", "name"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-optional": true }, paint: { "text-color": "#ffffff", "text-halo-color": "rgba(4,12,22,.9)", "text-halo-width": 1.5 } });
   renderList();
 }
 
-map.on("load", () => {
-  installStationLayers();
-});
-map.on("moveend", renderList);
-map.on("click", "station-points", (event: MapLayerMouseEvent) => {
-  const id = Number(event.features?.[0]?.properties?.id);
-  const station = stations.find((item) => item.id === id);
-  if (station) showStation(station);
-});
-map.on("click", "station-clusters-halo", (event: MapLayerMouseEvent) => {
-  const feature = map.queryRenderedFeatures(event.point, { layers: ["station-clusters-halo"] })[0];
-  const clusterId = Number(feature?.properties?.cluster_id);
-  const source = map.getSource("stations") as GeoJSONSource;
-  void source.getClusterExpansionZoom(clusterId).then((zoom) => map.easeTo({ center: (feature.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
-});
-for (const layer of ["station-points", "station-clusters-halo"]) {
-  map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
-  map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
+if (map) {
+  const activeMap = map;
+  activeMap.on("load", installStationLayers);
+  activeMap.on("moveend", renderList);
+  activeMap.on("click", "station-points", (event: MapLayerMouseEvent) => {
+    const id = Number(event.features?.[0]?.properties?.id);
+    const station = stations.find((item) => item.id === id);
+    if (station) showStation(station);
+  });
+  activeMap.on("click", "station-clusters-halo", (event: MapLayerMouseEvent) => {
+    const feature = activeMap.queryRenderedFeatures(event.point, { layers: ["station-clusters-halo"] })[0];
+    const clusterId = Number(feature?.properties?.cluster_id);
+    const source = activeMap.getSource("stations") as GeoJSONSource;
+    void source.getClusterExpansionZoom(clusterId).then((zoom) => activeMap.easeTo({ center: (feature.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
+  });
+  for (const layer of ["station-points", "station-clusters-halo"]) {
+    activeMap.on("mouseenter", layer, () => { activeMap.getCanvas().style.cursor = "pointer"; });
+    activeMap.on("mouseleave", layer, () => { activeMap.getCanvas().style.cursor = ""; });
+  }
 }
 
 stationList.addEventListener("click", (event) => {
@@ -314,14 +324,14 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
   document.querySelector<HTMLButtonElement>('[data-type="tv"]')?.classList.toggle("is-active", enabledTypes.has("tv"));
   renderList();
 }));
-byId("home-button").addEventListener("click", () => map.flyTo({ center: [8, 25], zoom: 1.55, pitch: 0, bearing: 0 }));
+byId("home-button").addEventListener("click", () => map?.flyTo({ center: [8, 25], zoom: 1.55, pitch: 0, bearing: 0 }));
 byId("reset-button").addEventListener("click", () => { searchInput.value = ""; enabledTypes = new Set(["radio", "tv"]); document.querySelectorAll(".media-tab").forEach((tab) => tab.classList.add("is-active")); renderList(); });
-byId("zoom-in").addEventListener("click", () => map.zoomIn());
-byId("zoom-out").addEventListener("click", () => map.zoomOut());
-byId("reset-bearing").addEventListener("click", () => map.easeTo({ bearing: 0, pitch: 0 }));
+byId("zoom-in").addEventListener("click", () => map?.zoomIn());
+byId("zoom-out").addEventListener("click", () => map?.zoomOut());
+byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
-byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 10 })));
+byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => map?.flyTo({ center: [position.coords.longitude, position.coords.latitude], zoom: 10 })));
 playButton.addEventListener("click", () => void startPlayback());
 byId("previous-button").addEventListener("click", () => selectRelative(-1));
 byId("next-button").addEventListener("click", () => selectRelative(1));
@@ -336,7 +346,7 @@ async function boot(): Promise<void> {
     const catalog = await loadCatalog();
     stations = catalog.stations;
     showStats(catalog.stats);
-    if (map.loaded()) installStationLayers();
+    if (map?.loaded()) installStationLayers();
     renderList();
   } catch (error) {
     byId("catalog-status").innerHTML = `<span class="error-dot"></span> Catálogo no disponible`;
