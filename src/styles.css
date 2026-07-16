@@ -10,11 +10,17 @@ button { color: inherit; }
 .maplibregl-canvas { outline: none; }
 .maplibregl-ctrl-attrib { margin: 0 12px 92px 0 !important; background: rgba(3, 9, 16, .62) !important; color: #a9bac8 !important; font-size: 9px; }
 .maplibregl-ctrl-attrib a { color: #bdd3e3 !important; }
-.map-fallback { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; color: #7893a6; padding: 30px; }
-.map-fallback span { font-size: 88px; color: #21445c; text-shadow: 0 0 45px rgba(52,158,207,.18); }
-.map-fallback strong { color: #afc3d0; font: 600 14px "Manrope"; margin-top: 12px; }
-.map-fallback p { max-width: 340px; font-size: 10px; line-height: 1.6; }
-.no-webgl .map-tools { display: none; }
+.canvas-globe { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(circle at 57% 47%, rgba(16,48,73,.72), rgba(2,7,13,.98) 64%); }
+.canvas-globe::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .27; background-image: radial-gradient(circle, rgba(185,225,244,.62) 0 1px, transparent 1.4px); background-size: 91px 91px; mask-image: linear-gradient(to right, transparent, #000 30%, #000); }
+.canvas-globe__canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.canvas-globe__canvas.is-dragging { cursor: grabbing; }
+.canvas-globe__canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.canvas-globe__level { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); min-width: 142px; height: 38px; padding: 0 10px; border-radius: 10px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; pointer-events: none; }
+.canvas-globe__level span { color: #638399; font-size: 7px; letter-spacing: 1px; }
+.canvas-globe__level strong { color: #c5d9e5; font-size: 9px; }
+.canvas-globe__level i { color: var(--radio); font: 500 8px inherit; }
+.light-theme .canvas-globe { background: radial-gradient(circle at 57% 47%, #d9edf5, #9fc4d5 68%, #7ea9bc); }
+.light-theme .canvas-globe__level strong { color: #24475a; }
 .glass { background: var(--glass); border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0, 0, 0, .28); backdrop-filter: blur(22px) saturate(130%); -webkit-backdrop-filter: blur(22px) saturate(130%); }
 .topbar { position: absolute; z-index: 5; left: 16px; right: 16px; top: 16px; height: 68px; border-radius: 16px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 19px; }
 .brand { display: flex; align-items: center; gap: 11px; border: 0; background: none; cursor: pointer; text-align: left; padding: 0; }
