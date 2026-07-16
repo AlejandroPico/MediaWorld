@@ -399,11 +399,12 @@ function applyLabelVisibility(activeMap: maplibregl.Map): void {
 
 function applyMapMode(activeMap: maplibregl.Map, mode: MapMode): void {
   activeMap.setLayoutProperty("satellite-base", "visibility", mode === "satellite" ? "visible" : "none");
-  activeMap.setLayoutProperty("political-base", "visibility", mode === "political" ? "visible" : "none");
-  activeMap.setLayoutProperty("relief-base", "visibility", mode === "relief" ? "visible" : "none");
+  activeMap.setLayoutProperty("political-base", "visibility", mode === "political" && showGeographicLabels ? "visible" : "none");
+  activeMap.setLayoutProperty("relief-base", "visibility", mode === "relief" && showGeographicLabels ? "visible" : "none");
   activeMap.setLayoutProperty("terrain-hillshade", "visibility", mode === "relief" ? "visible" : "none");
-  activeMap.setLayoutProperty("boundaries-fill", "visibility", mode === "boundaries" ? "visible" : "none");
-  activeMap.setLayoutProperty("boundaries-line", "visibility", mode === "boundaries" ? "visible" : "none");
+  const cleanVectorBase = mode === "boundaries" || (!showGeographicLabels && (mode === "political" || mode === "relief"));
+  activeMap.setLayoutProperty("boundaries-fill", "visibility", cleanVectorBase ? "visible" : "none");
+  activeMap.setLayoutProperty("boundaries-line", "visibility", cleanVectorBase ? "visible" : "none");
   try { activeMap.setTerrain(mode === "boundaries" ? null : { source: "terrain-dem", exaggeration: mode === "relief" ? 1.2 : 1.08 }); } catch { /* La esfera sigue disponible sin elevación. */ }
   if (mode === "boundaries") activeMap.easeTo({ pitch: 0, duration: 450 });
   applyLabelVisibility(activeMap);
@@ -566,7 +567,7 @@ byId<HTMLSelectElement>("map-mode").addEventListener("change", (event) => {
 });
 byId("labels-button").addEventListener("click", () => {
   showGeographicLabels = !showGeographicLabels;
-  if (map && mapReady) applyLabelVisibility(map);
+  if (map && mapReady) applyMapMode(map, currentMapMode);
 });
 byId("theme-button").addEventListener("click", applyTheme);
 byId("collapse-button").addEventListener("click", () => document.querySelector(".explorer")?.classList.toggle("is-collapsed"));
