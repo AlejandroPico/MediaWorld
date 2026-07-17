@@ -14,6 +14,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Fichas editoriales con alcance, idioma, localización, estado de la emisión y web oficial.
 - Catálogo mundial independiente en tarjetas compactas, con carga continua al desplazarse, estado en tiempo real y acceso a las fichas sin coordenadas.
 - Reproductor minimalista de audio y vídeo, visible por defecto y ocultable sin detener la emisión. Consultar otras fichas tampoco interrumpe lo que está sonando.
+- Vídeo con controles de reproducción, pausa, volumen y pantalla completa; radio con visualizador de osciloscopio verde a pantalla completa y controles propios.
 - Nombre de programa o canción en el reproductor y en las fichas cuando la propia emisión HLS entrega metadatos ID3; el espacio desaparece cuando la fuente no los facilita.
 - Comprobación de salud durante la reproducción con estados de conexión, emisión, inestabilidad y falta de respuesta.
 - Modo descubrimiento para viajar con zoom cercano a una señal reproducible y geolocalizada que cumpla los filtros activos e iniciar su emisión inmediatamente.

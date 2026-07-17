@@ -100,7 +100,20 @@ app.innerHTML = `
 
     <section class="video-window glass" id="video-window" hidden>
       <div class="video-window__head"><span>EMISIÓN EN DIRECTO</span><button id="close-video" aria-label="Cerrar vídeo">×</button></div>
-      <video id="video" playsinline></video>
+      <video id="video" playsinline controls controlsList="nodownload noplaybackrate"></video>
+    </section>
+
+    <section class="radio-visualizer" id="radio-visualizer" aria-label="Visualización de radio a pantalla completa" hidden>
+      <canvas id="visualizer-canvas" aria-hidden="true"></canvas>
+      <header class="radio-visualizer__head">
+        <div><small>RADIO · VISUALIZACIÓN</small><strong id="visualizer-station">MediaWorld</strong><span id="visualizer-programme" hidden></span></div>
+        <button id="visualizer-close" aria-label="Cerrar visualización" title="Cerrar visualización">×</button>
+      </header>
+      <div class="radio-visualizer__controls">
+        <button id="visualizer-play" class="visualizer-play" aria-label="Reproducir o pausar">▶</button>
+        <label class="visualizer-volume" title="Volumen"><span>VOL</span><input id="visualizer-volume" type="range" min="0" max="1" value="0.72" step="0.01" aria-label="Volumen de la radio" /></label>
+        <button id="visualizer-exit" aria-label="Salir de pantalla completa" title="Salir de pantalla completa">${icon('<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>')}</button>
+      </div>
     </section>
 
     <footer class="player glass" id="player">
@@ -111,6 +124,7 @@ app.innerHTML = `
       <div class="transport">
         <button id="previous-button" aria-label="Anterior">‹</button>
         <button class="play-button" id="play-button" aria-label="Reproducir" disabled><span>▶</span></button>
+        <button class="visualizer-button" id="radio-fullscreen-button" aria-label="Visualización de radio a pantalla completa" title="Pantalla completa" hidden>${icon('<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>')}</button>
         <button id="next-button" aria-label="Siguiente">›</button>
       </div>
       <div class="player__right">
@@ -138,6 +152,13 @@ const player = byId<HTMLElement>("player");
 const audio = byId<HTMLAudioElement>("audio");
 const video = byId<HTMLVideoElement>("video");
 const videoWindow = byId<HTMLElement>("video-window");
+const radioVisualizer = byId<HTMLElement>("radio-visualizer");
+const visualizerCanvas = byId<HTMLCanvasElement>("visualizer-canvas");
+const visualizerStation = byId<HTMLElement>("visualizer-station");
+const visualizerProgramme = byId<HTMLElement>("visualizer-programme");
+const visualizerPlay = byId<HTMLButtonElement>("visualizer-play");
+const visualizerVolume = byId<HTMLInputElement>("visualizer-volume");
+const radioFullscreenButton = byId<HTMLButtonElement>("radio-fullscreen-button");
 const livePill = byId<HTMLElement>("live-pill");
 const playerLogo = byId<HTMLElement>("player-logo");
 const playerTitle = byId<HTMLElement>("player-title");
@@ -157,6 +178,8 @@ let playingStation: Station | null = null;
 let enabledTypes = new Set<MediaType>(["radio", "tv"]);
 let hls: Hls | null = null;
 let isPlaying = false;
+let visualizerFrame = 0;
+let visualizerWasFullscreen = false;
 type StreamHealth = "catalogued" | "available" | "connecting" | "live" | "unstable" | "offline";
 const streamHealth = new Map<number, StreamHealth>();
 const currentProgrammes = new Map<number, string>();
@@ -306,6 +329,10 @@ function updatePlayerStation(station: Station): void {
   playerTitle.hidden = !programme;
   playerPlace.textContent = [station.city, station.country].filter(Boolean).join(" · ");
   playerCopy.classList.toggle("has-programme", Boolean(programme));
+  radioFullscreenButton.hidden = station.mediaType !== "radio" || !station.streamUrl;
+  visualizerStation.textContent = station.name;
+  visualizerProgramme.textContent = programme;
+  visualizerProgramme.hidden = !programme;
   playButton.disabled = !station.streamUrl;
   playButton.title = station.streamUrl ? (isPlaying ? "Pausar" : "Reproducir") : "Esta ficha todavía no tiene emisión verificada";
   livePill.textContent = details.label.toUpperCase();
@@ -451,6 +478,103 @@ function parseId3Programme(bytes: Uint8Array): string {
 function activeMedia(station = playingStation): HTMLMediaElement | null {
   if (!station) return null;
   return station.mediaType === "tv" ? video : audio;
+}
+
+function resizeVisualizerCanvas(): CanvasRenderingContext2D | null {
+  const context = visualizerCanvas.getContext("2d");
+  if (!context) return null;
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(visualizerCanvas.clientWidth * ratio));
+  const height = Math.max(1, Math.round(visualizerCanvas.clientHeight * ratio));
+  if (visualizerCanvas.width !== width || visualizerCanvas.height !== height) {
+    visualizerCanvas.width = width;
+    visualizerCanvas.height = height;
+  }
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return context;
+}
+
+function drawRadioVisualizer(time: number): void {
+  if (radioVisualizer.hidden) return;
+  const context = resizeVisualizerCanvas();
+  if (!context) return;
+  const width = visualizerCanvas.clientWidth;
+  const height = visualizerCanvas.clientHeight;
+  const centre = height / 2;
+  context.fillStyle = "#010402";
+  context.fillRect(0, 0, width, height);
+
+  context.lineWidth = 1;
+  context.strokeStyle = "rgba(48, 255, 105, .055)";
+  context.beginPath();
+  for (let x = 0; x <= width; x += 48) { context.moveTo(x, 0); context.lineTo(x, height); }
+  for (let y = 0; y <= height; y += 48) { context.moveTo(0, y); context.lineTo(width, y); }
+  context.stroke();
+
+  const active = Boolean(isPlaying && playingStation?.mediaType === "radio");
+  const amplitude = active ? height * (.065 + audio.volume * .12) : 1.4;
+  const speed = time * .0028;
+  const gradient = context.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, "#00e85c");
+  gradient.addColorStop(.42, "#baff28");
+  gradient.addColorStop(.7, "#33ff78");
+  gradient.addColorStop(1, "#00b94c");
+
+  context.beginPath();
+  for (let x = 0; x <= width; x += 2) {
+    const progress = x / Math.max(width, 1);
+    const envelope = .28 + .72 * Math.pow(Math.sin(Math.PI * progress), .55);
+    const carrier = Math.sin(progress * 54 + speed * 3.2)
+      + .48 * Math.sin(progress * 137 - speed * 4.7)
+      + .24 * Math.sin(progress * 281 + speed * 7.1);
+    const pulse = .7 + .3 * Math.sin(speed * 1.7 + progress * 8);
+    const y = centre + carrier * amplitude * envelope * pulse;
+    if (x === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  context.strokeStyle = gradient;
+  context.lineWidth = 1.6;
+  context.shadowColor = "rgba(68, 255, 112, .9)";
+  context.shadowBlur = 12;
+  context.stroke();
+  context.shadowBlur = 0;
+
+  context.fillStyle = "rgba(20, 255, 87, .07)";
+  const scanline = (time * .08) % Math.max(height, 1);
+  context.fillRect(0, scanline, width, 2);
+  visualizerPlay.textContent = isPlaying ? "Ⅱ" : "▶";
+  visualizerPlay.setAttribute("aria-label", isPlaying ? "Pausar" : "Reproducir");
+  visualizerFrame = window.requestAnimationFrame(drawRadioVisualizer);
+}
+
+function hideRadioVisualizer(): void {
+  radioVisualizer.hidden = true;
+  window.cancelAnimationFrame(visualizerFrame);
+  visualizerFrame = 0;
+}
+
+async function openRadioVisualizer(): Promise<void> {
+  const station = playingStation ?? selected;
+  if (!station || station.mediaType !== "radio") return;
+  visualizerStation.textContent = station.name;
+  const programme = programmeFor(station);
+  visualizerProgramme.textContent = programme;
+  visualizerProgramme.hidden = !programme;
+  visualizerVolume.value = String(audio.volume);
+  radioVisualizer.hidden = false;
+  window.cancelAnimationFrame(visualizerFrame);
+  visualizerFrame = window.requestAnimationFrame(drawRadioVisualizer);
+  try {
+    await radioVisualizer.requestFullscreen();
+    visualizerWasFullscreen = true;
+  } catch { /* El visor ocupa la ventana aunque el navegador bloquee Fullscreen API. */ }
+}
+
+async function closeRadioVisualizer(): Promise<void> {
+  visualizerWasFullscreen = false;
+  if (document.fullscreenElement === radioVisualizer) {
+    try { await document.exitFullscreen(); } catch { /* El panel se cierra igualmente. */ }
+  }
+  hideRadioVisualizer();
 }
 
 async function startPlayback(target = playingStation ?? selected): Promise<void> {
@@ -783,7 +907,10 @@ document.addEventListener("keydown", (event) => {
     if (byId("filter-panel").hidden) togglePanel("filter-panel", "filter-button");
     searchInput.focus();
   }
-  if (event.key === "Escape") closePanels();
+  if (event.key === "Escape") {
+    if (!radioVisualizer.hidden) void closeRadioVisualizer();
+    else closePanels();
+  }
 });
 document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((button) => button.addEventListener("click", () => {
   const type = button.dataset.type;
@@ -844,6 +971,20 @@ byId("zoom-in").addEventListener("click", () => map?.zoomIn());
 byId("zoom-out").addEventListener("click", () => map?.zoomOut());
 byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
 playButton.addEventListener("click", () => void startPlayback());
+radioFullscreenButton.addEventListener("click", () => void openRadioVisualizer());
+visualizerPlay.addEventListener("click", () => {
+  const station = playingStation ?? selected;
+  if (station?.mediaType === "radio") void startPlayback(station);
+});
+byId("visualizer-close").addEventListener("click", () => void closeRadioVisualizer());
+byId("visualizer-exit").addEventListener("click", () => void closeRadioVisualizer());
+document.addEventListener("fullscreenchange", () => {
+  if (document.fullscreenElement === radioVisualizer) visualizerWasFullscreen = true;
+  else if (visualizerWasFullscreen) {
+    visualizerWasFullscreen = false;
+    hideRadioVisualizer();
+  }
+});
 byId("previous-button").addEventListener("click", () => selectRelative(-1));
 byId("next-button").addEventListener("click", () => selectRelative(1));
 byId("close-video").addEventListener("click", () => {
@@ -855,7 +996,20 @@ byId("close-video").addEventListener("click", () => {
   livePill.textContent = "PAUSA";
   if (playingStation && selected?.id === playingStation.id) showStation(playingStation);
 });
-byId<HTMLInputElement>("volume").addEventListener("input", (event) => { const volume = Number((event.target as HTMLInputElement).value); audio.volume = volume; video.volume = volume; });
+const compactVolume = byId<HTMLInputElement>("volume");
+compactVolume.addEventListener("input", (event) => {
+  const volume = Number((event.target as HTMLInputElement).value);
+  audio.volume = volume;
+  video.volume = volume;
+  visualizerVolume.value = String(volume);
+});
+visualizerVolume.addEventListener("input", (event) => {
+  const volume = Number((event.target as HTMLInputElement).value);
+  audio.volume = volume;
+  compactVolume.value = String(volume);
+});
+audio.volume = Number(compactVolume.value);
+video.volume = Number(compactVolume.value);
 
 [audio, video].forEach((media) => {
   media.addEventListener("playing", () => {
