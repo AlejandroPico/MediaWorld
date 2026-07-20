@@ -106,8 +106,15 @@ app.innerHTML = `
     <section class="radio-visualizer" id="radio-visualizer" aria-label="Visualización de radio a pantalla completa" hidden>
       <canvas id="visualizer-canvas" aria-hidden="true"></canvas>
       <header class="radio-visualizer__head">
-        <div><small>RADIO · VISUALIZACIÓN</small><strong id="visualizer-station">MediaWorld</strong><span id="visualizer-programme" hidden></span></div>
-        <button id="visualizer-close" aria-label="Cerrar visualización" title="Cerrar visualización">×</button>
+        <div><small>RADIO · VISUALIZACIÓN REAL</small><strong id="visualizer-station">MediaWorld</strong><span id="visualizer-programme" hidden></span><span class="visualizer-analysis-status is-pending" id="visualizer-analysis-status">PREPARANDO ANÁLISIS DE AUDIO…</span></div>
+        <div class="radio-visualizer__top-actions">
+          <label class="visualizer-style-picker"><span>VISUALIZADOR</span><select id="visualizer-style" aria-label="Estilo de visualización">
+            <optgroup label="Clásicos · antes de 2000"><option value="oscilloscope">Osciloscopio verde</option><option value="vu">Vúmetros analógicos</option><option value="crt">Espectro CRT</option></optgroup>
+            <optgroup label="Era 2000"><option value="columns">Columnas de fósforo</option><option value="mirror">Espejo de frecuencias</option><option value="matrix">Matriz de puntos</option><option value="waterfall">Cascada espectral</option></optgroup>
+            <optgroup label="Contemporáneos"><option value="neon">Onda neón</option><option value="radial">Órbita radial</option><option value="rings">Anillos de energía</option><option value="particles">Constelación sonora</option><option value="terrain">Terreno espectral</option><option value="pulse">Pulso de señal</option></optgroup>
+          </select></label>
+          <button class="visualizer-close" id="visualizer-close" aria-label="Cerrar visualización" title="Cerrar visualización">×</button>
+        </div>
       </header>
       <div class="radio-visualizer__controls">
         <button id="visualizer-play" class="visualizer-play" aria-label="Reproducir o pausar">▶</button>
@@ -156,6 +163,8 @@ const radioVisualizer = byId<HTMLElement>("radio-visualizer");
 const visualizerCanvas = byId<HTMLCanvasElement>("visualizer-canvas");
 const visualizerStation = byId<HTMLElement>("visualizer-station");
 const visualizerProgramme = byId<HTMLElement>("visualizer-programme");
+const visualizerAnalysisStatus = byId<HTMLElement>("visualizer-analysis-status");
+const visualizerStyleSelect = byId<HTMLSelectElement>("visualizer-style");
 const visualizerPlay = byId<HTMLButtonElement>("visualizer-play");
 const visualizerVolume = byId<HTMLInputElement>("visualizer-volume");
 const radioFullscreenButton = byId<HTMLButtonElement>("radio-fullscreen-button");
@@ -180,6 +189,20 @@ let hls: Hls | null = null;
 let isPlaying = false;
 let visualizerFrame = 0;
 let visualizerWasFullscreen = false;
+type VisualizerStyle = "oscilloscope" | "vu" | "crt" | "columns" | "mirror" | "matrix" | "waterfall" | "neon" | "radial" | "rings" | "particles" | "terrain" | "pulse";
+type AnalyserStatus = "idle" | "connecting" | "ready" | "blocked" | "unsupported";
+let visualizerStyle: VisualizerStyle = "oscilloscope";
+let analyserStatus: AnalyserStatus = "idle";
+let analyserContext: AudioContext | null = null;
+let analyserNode: AnalyserNode | null = null;
+let analyserSource: AudioNode | null = null;
+let capturedAudioStream: MediaStream | null = null;
+let analysisAudio: HTMLAudioElement | null = null;
+let analyserTimeData = new Uint8Array(0);
+let analyserFrequencyData = new Uint8Array(0);
+let silentAnalyserFrames = 0;
+const visualizerHistory: Uint8Array[] = [];
+let lastVisualizerHistoryAt = 0;
 type StreamHealth = "catalogued" | "available" | "connecting" | "live" | "unstable" | "offline";
 const streamHealth = new Map<number, StreamHealth>();
 const currentProgrammes = new Map<number, string>();
@@ -424,6 +447,10 @@ function showStation(station: Station, fly = false): void {
 function stopMedia(clearStation = true): void {
   const previous = playingStation;
   if (clearStation) playingStation = null;
+  if (!radioVisualizer.hidden) {
+    disposeAudioAnalyser();
+    setAnalyserStatus("idle", "ESPERANDO LA NUEVA SEÑAL…");
+  }
   audio.pause();
   video.pause();
   audio.removeAttribute("src");
@@ -494,53 +521,368 @@ function resizeVisualizerCanvas(): CanvasRenderingContext2D | null {
   return context;
 }
 
+function setAnalyserStatus(status: AnalyserStatus, message: string): void {
+  analyserStatus = status;
+  visualizerAnalysisStatus.className = `visualizer-analysis-status is-${status}`;
+  visualizerAnalysisStatus.textContent = message;
+}
+
+function disposeAudioAnalyser(): void {
+  analyserSource?.disconnect();
+  capturedAudioStream?.getTracks().forEach((track) => track.stop());
+  analysisAudio?.pause();
+  if (analysisAudio) {
+    analysisAudio.removeAttribute("src");
+    analysisAudio.load();
+  }
+  if (analyserContext && analyserContext.state !== "closed") void analyserContext.close();
+  analyserContext = null;
+  analyserNode = null;
+  analyserSource = null;
+  capturedAudioStream = null;
+  analysisAudio = null;
+  analyserTimeData = new Uint8Array(0);
+  analyserFrequencyData = new Uint8Array(0);
+  silentAnalyserFrames = 0;
+  visualizerHistory.length = 0;
+  lastVisualizerHistoryAt = 0;
+}
+
+function prepareAnalyser(context: AudioContext): AnalyserNode {
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = .76;
+  analyser.minDecibels = -92;
+  analyser.maxDecibels = -12;
+  analyserTimeData = new Uint8Array(analyser.fftSize);
+  analyserFrequencyData = new Uint8Array(analyser.frequencyBinCount);
+  return analyser;
+}
+
+function startRealAudioAnalysis(station: Station): void {
+  disposeAudioAnalyser();
+  if (!window.AudioContext) {
+    setAnalyserStatus("unsupported", "ESTE NAVEGADOR NO OFRECE WEB AUDIO");
+    return;
+  }
+  setAnalyserStatus("connecting", "CONECTANDO EL ANALIZADOR REAL…");
+  try {
+    analyserContext = new AudioContext();
+    analyserNode = prepareAnalyser(analyserContext);
+    const capturable = audio as HTMLAudioElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
+    const capture = capturable.captureStream ?? capturable.mozCaptureStream;
+    if (capture) {
+      const stream = capture.call(audio);
+      const track = stream.getAudioTracks()[0];
+      if (track && !track.muted) {
+        capturedAudioStream = stream;
+        analyserSource = analyserContext.createMediaStreamSource(stream);
+        analyserSource.connect(analyserNode);
+        track.addEventListener("mute", () => setAnalyserStatus("blocked", "LA FUENTE HA BLOQUEADO EL ANÁLISIS DEL AUDIO"));
+        void analyserContext.resume();
+        setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048");
+        return;
+      }
+      stream.getTracks().forEach((item) => item.stop());
+    }
+
+    analysisAudio = new Audio();
+    analysisAudio.crossOrigin = "anonymous";
+    analysisAudio.preload = "auto";
+    analysisAudio.src = station.streamUrl;
+    analysisAudio.addEventListener("error", () => setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO"), { once: true });
+    analyserSource = analyserContext.createMediaElementSource(analysisAudio);
+    analyserSource.connect(analyserNode);
+    void analyserContext.resume();
+    void analysisAudio.play().then(() => {
+      setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048");
+    }).catch(() => {
+      setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO");
+    });
+  } catch {
+    setAnalyserStatus("blocked", "EL NAVEGADOR HA BLOQUEADO LA CAPTURA DE ESTA EMISORA");
+  }
+}
+
+function drawVisualizerGrid(context: CanvasRenderingContext2D, width: number, height: number, color = "48, 255, 105"): void {
+  context.lineWidth = 1;
+  context.strokeStyle = `rgba(${color}, .055)`;
+  context.beginPath();
+  for (let x = 0; x <= width; x += 48) { context.moveTo(x, 0); context.lineTo(x, height); }
+  for (let y = 0; y <= height; y += 48) { context.moveTo(0, y); context.lineTo(width, y); }
+  context.stroke();
+}
+
+function frequencyValue(index: number, count: number): number {
+  if (!analyserFrequencyData.length) return 0;
+  const progress = Math.max(0, Math.min(1, index / Math.max(1, count - 1)));
+  const bin = Math.min(analyserFrequencyData.length - 1, Math.floor(Math.pow(progress, 1.7) * analyserFrequencyData.length * .72));
+  return analyserFrequencyData[bin] / 255;
+}
+
+function bandEnergy(start: number, end: number): number {
+  if (!analyserFrequencyData.length) return 0;
+  const from = Math.floor(start * analyserFrequencyData.length);
+  const to = Math.max(from + 1, Math.floor(end * analyserFrequencyData.length));
+  let total = 0;
+  for (let index = from; index < to; index += 1) total += analyserFrequencyData[index];
+  return total / Math.max(1, to - from) / 255;
+}
+
+function waveformRms(): number {
+  if (!analyserTimeData.length) return 0;
+  let squares = 0;
+  for (const value of analyserTimeData) squares += Math.pow((value - 128) / 128, 2);
+  return Math.sqrt(squares / analyserTimeData.length);
+}
+
+function drawWaveform(context: CanvasRenderingContext2D, width: number, height: number, neon = false): void {
+  context.beginPath();
+  for (let index = 0; index < analyserTimeData.length; index += 1) {
+    const x = index / Math.max(1, analyserTimeData.length - 1) * width;
+    const y = height / 2 + (analyserTimeData[index] - 128) / 128 * height * .39;
+    if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  const gradient = context.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, neon ? "#00d9ff" : "#00e85c");
+  gradient.addColorStop(.5, neon ? "#ff45dc" : "#c5ff32");
+  gradient.addColorStop(1, neon ? "#7957ff" : "#00c95b");
+  context.strokeStyle = gradient;
+  context.lineWidth = neon ? 2.2 : 1.6;
+  context.shadowColor = neon ? "rgba(148, 70, 255, .9)" : "rgba(68, 255, 112, .9)";
+  context.shadowBlur = neon ? 18 : 12;
+  context.stroke();
+  context.shadowBlur = 0;
+}
+
+function drawBars(context: CanvasRenderingContext2D, width: number, height: number, count: number, mirrored = false, crt = false): void {
+  const gap = crt ? 3 : 2;
+  const barWidth = Math.max(2, width / count - gap);
+  for (let index = 0; index < count; index += 1) {
+    const value = frequencyValue(index, count);
+    const barHeight = Math.max(1, value * height * (mirrored ? .43 : .78));
+    const hue = crt ? 118 : 110 - index / count * 100;
+    context.fillStyle = crt ? `rgba(72, 255, 111, ${.28 + value * .72})` : `hsla(${hue}, 92%, 58%, ${.3 + value * .7})`;
+    const x = index / count * width + gap / 2;
+    if (mirrored) {
+      context.fillRect(x, height / 2 - barHeight, barWidth, barHeight);
+      context.fillRect(x, height / 2, barWidth, barHeight);
+    } else context.fillRect(x, height - barHeight - 18, barWidth, barHeight);
+  }
+}
+
+function drawVuMeters(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const values = [bandEnergy(0, .12), bandEnergy(.12, .48)];
+  values.forEach((value, meter) => {
+    const cx = width * (meter ? .68 : .32);
+    const cy = height * .62;
+    const radius = Math.min(width * .22, height * .32);
+    context.strokeStyle = "rgba(225, 245, 207, .24)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(cx, cy, radius, Math.PI * 1.15, Math.PI * 1.85);
+    context.stroke();
+    for (let tick = 0; tick <= 10; tick += 1) {
+      const angle = Math.PI * (1.15 + tick / 10 * .7);
+      const inner = radius * (tick % 5 === 0 ? .78 : .84);
+      context.beginPath();
+      context.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+      context.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+      context.stroke();
+    }
+    const needle = Math.PI * (1.15 + Math.min(1, value * 1.45) * .7);
+    context.strokeStyle = value > .78 ? "#ff705f" : "#baff66";
+    context.lineWidth = 2.2;
+    context.beginPath();
+    context.moveTo(cx, cy);
+    context.lineTo(cx + Math.cos(needle) * radius * .9, cy + Math.sin(needle) * radius * .9);
+    context.stroke();
+    context.fillStyle = "rgba(212, 255, 222, .72)";
+    context.font = "10px Manrope, sans-serif";
+    context.textAlign = "center";
+    context.fillText(meter ? "MEDIOS / AGUDOS" : "GRAVES", cx, cy + 26);
+  });
+}
+
+function drawMatrix(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const columns = Math.max(28, Math.floor(width / 13));
+  const rows = Math.max(12, Math.floor(height / 14));
+  for (let column = 0; column < columns; column += 1) {
+    const value = frequencyValue(column, columns);
+    const activeRows = Math.round(value * rows);
+    for (let row = 0; row < rows; row += 1) {
+      const active = row >= rows - activeRows;
+      const hue = row < rows * .18 ? 10 : row < rows * .38 ? 48 : 116;
+      context.fillStyle = active ? `hsla(${hue}, 96%, 58%, .92)` : "rgba(80, 255, 115, .055)";
+      context.beginPath();
+      context.arc((column + .5) / columns * width, (row + .5) / rows * height, Math.max(1.5, Math.min(width / columns, height / rows) * .22), 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+}
+
+function drawRadial(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const cx = width / 2;
+  const cy = height / 2;
+  const base = Math.min(width, height) * .16;
+  const count = 160;
+  for (let index = 0; index < count; index += 1) {
+    const value = frequencyValue(index, count);
+    const angle = index / count * Math.PI * 2 - Math.PI / 2;
+    const length = value * Math.min(width, height) * .25;
+    context.strokeStyle = `hsla(${145 + value * 145}, 95%, 64%, ${.22 + value * .78})`;
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.moveTo(cx + Math.cos(angle) * base, cy + Math.sin(angle) * base);
+    context.lineTo(cx + Math.cos(angle) * (base + length), cy + Math.sin(angle) * (base + length));
+    context.stroke();
+  }
+}
+
+function drawEnergyRings(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const base = Math.min(width, height) * .075;
+  for (let band = 0; band < 9; band += 1) {
+    const value = bandEnergy(band / 28, (band + 1) / 28);
+    context.strokeStyle = `hsla(${175 + band * 17}, 95%, 62%, ${.12 + value * .82})`;
+    context.lineWidth = 1 + value * 4;
+    context.beginPath();
+    context.arc(width / 2, height / 2, base + band * Math.min(width, height) * .032 + value * 26, 0, Math.PI * 2);
+    context.stroke();
+  }
+}
+
+function drawParticles(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const count = 180;
+  for (let index = 0; index < count; index += 1) {
+    const value = frequencyValue(index, count);
+    const angle = index * 2.399963;
+    const radius = Math.sqrt(index / count) * Math.min(width, height) * .44 * (.58 + value * .42);
+    const x = width / 2 + Math.cos(angle) * radius;
+    const y = height / 2 + Math.sin(angle) * radius;
+    context.fillStyle = `hsla(${160 + value * 150}, 95%, 68%, ${.08 + value * .9})`;
+    context.beginPath();
+    context.arc(x, y, .6 + value * 3.6, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function updateVisualizerHistory(time: number): void {
+  if (time - lastVisualizerHistoryAt < 48 || !analyserFrequencyData.length) return;
+  lastVisualizerHistoryAt = time;
+  visualizerHistory.push(analyserFrequencyData.slice());
+  if (visualizerHistory.length > 90) visualizerHistory.shift();
+}
+
+function drawWaterfall(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const rows = visualizerHistory.length;
+  if (!rows) return;
+  const rowHeight = height / 90 + 1;
+  for (let row = 0; row < rows; row += 1) {
+    const snapshot = visualizerHistory[rows - 1 - row];
+    const y = height - (row + 1) * rowHeight;
+    const columns = Math.min(180, snapshot.length);
+    for (let column = 0; column < columns; column += 1) {
+      const bin = Math.floor(Math.pow(column / columns, 1.65) * snapshot.length * .72);
+      const value = snapshot[bin] / 255;
+      context.fillStyle = `hsla(${230 - value * 210}, 95%, ${18 + value * 55}%, ${.05 + value * .9})`;
+      context.fillRect(column / columns * width, y, width / columns + 1, rowHeight);
+    }
+  }
+}
+
+function drawTerrain(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const layers = visualizerHistory.length ? visualizerHistory.slice(-8) : [analyserFrequencyData];
+  layers.forEach((snapshot, layer) => {
+    const baseline = height * (.78 - layer * .065);
+    context.beginPath();
+    context.moveTo(0, baseline);
+    const points = 96;
+    for (let index = 0; index < points; index += 1) {
+      const bin = Math.floor(Math.pow(index / points, 1.7) * snapshot.length * .72);
+      const value = snapshot[bin] / 255;
+      context.lineTo(index / (points - 1) * width, baseline - value * height * .28);
+    }
+    context.strokeStyle = `hsla(${170 + layer * 15}, 90%, 62%, ${.22 + layer * .075})`;
+    context.lineWidth = 1.3;
+    context.stroke();
+  });
+}
+
+function drawPulse(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const rms = waveformRms();
+  const radius = Math.min(width, height) * (.1 + rms * .75);
+  const gradient = context.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, radius);
+  gradient.addColorStop(0, `rgba(77, 255, 145, ${.2 + rms})`);
+  gradient.addColorStop(.55, `rgba(41, 176, 255, ${.14 + rms * .5})`);
+  gradient.addColorStop(1, "rgba(135, 65, 255, 0)");
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = "rgba(164, 255, 198, .82)";
+  context.lineWidth = 1.4;
+  context.beginPath();
+  const samples = 256;
+  for (let index = 0; index < samples; index += 1) {
+    const sample = analyserTimeData[Math.floor(index / samples * analyserTimeData.length)];
+    const amplitude = (sample - 128) / 128;
+    const angle = index / samples * Math.PI * 2;
+    const r = radius * (1 + amplitude * .3);
+    const x = width / 2 + Math.cos(angle) * r;
+    const y = height / 2 + Math.sin(angle) * r;
+    if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  context.closePath();
+  context.stroke();
+}
+
 function drawRadioVisualizer(time: number): void {
   if (radioVisualizer.hidden) return;
   const context = resizeVisualizerCanvas();
   if (!context) return;
   const width = visualizerCanvas.clientWidth;
   const height = visualizerCanvas.clientHeight;
-  const centre = height / 2;
-  context.fillStyle = "#010402";
+  context.fillStyle = ["neon", "radial", "rings", "particles", "terrain", "pulse"].includes(visualizerStyle) ? "#02030a" : "#010402";
   context.fillRect(0, 0, width, height);
+  drawVisualizerGrid(context, width, height, ["neon", "radial", "rings", "particles", "terrain", "pulse"].includes(visualizerStyle) ? "90, 112, 255" : "48, 255, 105");
 
-  context.lineWidth = 1;
-  context.strokeStyle = "rgba(48, 255, 105, .055)";
-  context.beginPath();
-  for (let x = 0; x <= width; x += 48) { context.moveTo(x, 0); context.lineTo(x, height); }
-  for (let y = 0; y <= height; y += 48) { context.moveTo(0, y); context.lineTo(width, y); }
-  context.stroke();
+  if (analyserNode && analyserStatus === "ready" && isPlaying) {
+    analyserNode.getByteTimeDomainData(analyserTimeData);
+    analyserNode.getByteFrequencyData(analyserFrequencyData);
+    updateVisualizerHistory(time);
+    const signal = waveformRms();
+    const frequencyPeak = analyserFrequencyData.reduce((peak, value) => Math.max(peak, value), 0);
+    if (signal < .0025 && frequencyPeak < 2) silentAnalyserFrames += 1;
+    else {
+      silentAnalyserFrames = 0;
+      if (visualizerAnalysisStatus.textContent?.startsWith("SEÑAL PLANA")) setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048");
+    }
+    if (silentAnalyserFrames === 300) setAnalyserStatus("ready", "SEÑAL PLANA: SILENCIO O DATOS NO EXPUESTOS POR LA FUENTE");
 
-  const active = Boolean(isPlaying && playingStation?.mediaType === "radio");
-  const amplitude = active ? height * (.065 + audio.volume * .12) : 1.4;
-  const speed = time * .0028;
-  const gradient = context.createLinearGradient(0, 0, width, 0);
-  gradient.addColorStop(0, "#00e85c");
-  gradient.addColorStop(.42, "#baff28");
-  gradient.addColorStop(.7, "#33ff78");
-  gradient.addColorStop(1, "#00b94c");
-
-  context.beginPath();
-  for (let x = 0; x <= width; x += 2) {
-    const progress = x / Math.max(width, 1);
-    const envelope = .28 + .72 * Math.pow(Math.sin(Math.PI * progress), .55);
-    const carrier = Math.sin(progress * 54 + speed * 3.2)
-      + .48 * Math.sin(progress * 137 - speed * 4.7)
-      + .24 * Math.sin(progress * 281 + speed * 7.1);
-    const pulse = .7 + .3 * Math.sin(speed * 1.7 + progress * 8);
-    const y = centre + carrier * amplitude * envelope * pulse;
-    if (x === 0) context.moveTo(x, y); else context.lineTo(x, y);
+    if (analyserStatus === "ready") {
+      if (visualizerStyle === "oscilloscope") drawWaveform(context, width, height);
+      else if (visualizerStyle === "neon") drawWaveform(context, width, height, true);
+      else if (visualizerStyle === "vu") drawVuMeters(context, width, height);
+      else if (visualizerStyle === "crt") drawBars(context, width, height, 58, false, true);
+      else if (visualizerStyle === "columns") drawBars(context, width, height, Math.max(48, Math.floor(width / 10)));
+      else if (visualizerStyle === "mirror") drawBars(context, width, height, Math.max(42, Math.floor(width / 12)), true);
+      else if (visualizerStyle === "matrix") drawMatrix(context, width, height);
+      else if (visualizerStyle === "waterfall") drawWaterfall(context, width, height);
+      else if (visualizerStyle === "radial") drawRadial(context, width, height);
+      else if (visualizerStyle === "rings") drawEnergyRings(context, width, height);
+      else if (visualizerStyle === "particles") drawParticles(context, width, height);
+      else if (visualizerStyle === "terrain") drawTerrain(context, width, height);
+      else if (visualizerStyle === "pulse") drawPulse(context, width, height);
+    }
+  } else {
+    context.strokeStyle = analyserStatus === "blocked" ? "rgba(255, 115, 94, .55)" : "rgba(76, 255, 117, .48)";
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.moveTo(0, height / 2);
+    context.lineTo(width, height / 2);
+    context.stroke();
   }
-  context.strokeStyle = gradient;
-  context.lineWidth = 1.6;
-  context.shadowColor = "rgba(68, 255, 112, .9)";
-  context.shadowBlur = 12;
-  context.stroke();
-  context.shadowBlur = 0;
 
-  context.fillStyle = "rgba(20, 255, 87, .07)";
-  const scanline = (time * .08) % Math.max(height, 1);
-  context.fillRect(0, scanline, width, 2);
   visualizerPlay.textContent = isPlaying ? "Ⅱ" : "▶";
   visualizerPlay.setAttribute("aria-label", isPlaying ? "Pausar" : "Reproducir");
   visualizerFrame = window.requestAnimationFrame(drawRadioVisualizer);
@@ -550,6 +892,8 @@ function hideRadioVisualizer(): void {
   radioVisualizer.hidden = true;
   window.cancelAnimationFrame(visualizerFrame);
   visualizerFrame = 0;
+  disposeAudioAnalyser();
+  setAnalyserStatus("idle", "ANÁLISIS DETENIDO");
 }
 
 async function openRadioVisualizer(): Promise<void> {
@@ -561,6 +905,8 @@ async function openRadioVisualizer(): Promise<void> {
   visualizerProgramme.hidden = !programme;
   visualizerVolume.value = String(audio.volume);
   radioVisualizer.hidden = false;
+  if (isPlaying && playingStation?.id === station.id) startRealAudioAnalysis(station);
+  else setAnalyserStatus("idle", "PULSA REPRODUCIR PARA INICIAR EL ANÁLISIS REAL");
   window.cancelAnimationFrame(visualizerFrame);
   visualizerFrame = window.requestAnimationFrame(drawRadioVisualizer);
   try {
@@ -582,6 +928,7 @@ async function startPlayback(target = playingStation ?? selected): Promise<void>
   const sameStation = playingStation?.id === target.id;
   if (sameStation && isPlaying) {
     activeMedia(target)?.pause();
+    analysisAudio?.pause();
     isPlaying = false;
     playButton.innerHTML = "<span>▶</span>";
     playButton.title = "Reanudar";
@@ -972,6 +1319,12 @@ byId("zoom-out").addEventListener("click", () => map?.zoomOut());
 byId("reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
 playButton.addEventListener("click", () => void startPlayback());
 radioFullscreenButton.addEventListener("click", () => void openRadioVisualizer());
+visualizerStyleSelect.addEventListener("change", () => {
+  visualizerStyle = visualizerStyleSelect.value as VisualizerStyle;
+  localStorage.setItem("mediaworld-visualizer-style", visualizerStyle);
+  visualizerHistory.length = 0;
+  lastVisualizerHistoryAt = 0;
+});
 visualizerPlay.addEventListener("click", () => {
   const station = playingStation ?? selected;
   if (station?.mediaType === "radio") void startPlayback(station);
@@ -1018,6 +1371,10 @@ video.volume = Number(compactVolume.value);
     playButton.innerHTML = "<span>Ⅱ</span>";
     playButton.title = "Pausar";
     updateHealth(playingStation, "live");
+    if (media === audio && !radioVisualizer.hidden) {
+      if (analysisAudio?.paused) void analysisAudio.play().catch(() => setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO"));
+      else if (!analyserNode) startRealAudioAnalysis(playingStation);
+    }
   });
   const markUnstable = () => {
     if (playingStation && isPlaying && media === activeMedia()) updateHealth(playingStation, "unstable");
@@ -1057,6 +1414,10 @@ function showStats(stats: CatalogStats): void {
 }
 
 const storedTheme = localStorage.getItem("mediaworld-theme-mode");
+const storedVisualizerStyle = localStorage.getItem("mediaworld-visualizer-style") as VisualizerStyle | null;
+const visualizerStyles: VisualizerStyle[] = ["oscilloscope", "vu", "crt", "columns", "mirror", "matrix", "waterfall", "neon", "radial", "rings", "particles", "terrain", "pulse"];
+visualizerStyle = storedVisualizerStyle && visualizerStyles.includes(storedVisualizerStyle) ? storedVisualizerStyle : "oscilloscope";
+visualizerStyleSelect.value = visualizerStyle;
 setThemeMode(storedTheme === "day" || storedTheme === "night" || storedTheme === "auto" ? storedTheme : "night");
 window.setInterval(() => { if (themeMode === "auto") resolveAutoTheme(); }, 300000);
 updateLabelsControl();
