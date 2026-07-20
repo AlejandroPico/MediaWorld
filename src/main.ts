@@ -108,10 +108,8 @@ app.innerHTML = `
       <header class="radio-visualizer__head">
         <div><small>RADIO · VISUALIZACIÓN REAL</small><strong id="visualizer-station">MediaWorld</strong><span id="visualizer-programme" hidden></span><span class="visualizer-analysis-status is-pending" id="visualizer-analysis-status">PREPARANDO ANÁLISIS DE AUDIO…</span></div>
         <div class="radio-visualizer__top-actions">
-          <label class="visualizer-style-picker"><span>VISUALIZADOR</span><select id="visualizer-style" aria-label="Estilo de visualización">
-            <optgroup label="Clásicos · antes de 2000"><option value="oscilloscope">Osciloscopio verde</option><option value="vu">Vúmetros analógicos</option><option value="crt">Espectro CRT</option></optgroup>
-            <optgroup label="Era 2000"><option value="columns">Columnas de fósforo</option><option value="mirror">Espejo de frecuencias</option><option value="matrix">Matriz de puntos</option><option value="waterfall">Cascada espectral</option></optgroup>
-            <optgroup label="Contemporáneos"><option value="neon">Onda neón</option><option value="radial">Órbita radial</option><option value="rings">Anillos de energía</option><option value="particles">Constelación sonora</option><option value="terrain">Terreno espectral</option><option value="pulse">Pulso de señal</option></optgroup>
+          <label class="visualizer-style-picker" title="Cambiar visualizador"><select id="visualizer-style" aria-label="Estilo de visualización">
+            <option value="oscilloscope">Osciloscopio</option><option value="vu">Vúmetros</option><option value="crt">Espectro CRT</option><option value="columns">Columnas</option><option value="mirror">Espejo</option><option value="matrix">Matriz</option><option value="waterfall">Cascada</option><option value="neon">Onda neón</option><option value="radial">Órbita</option><option value="rings">Anillos</option><option value="particles">Constelación</option><option value="terrain">Terreno</option><option value="pulse">Pulso</option>
           </select></label>
           <button class="visualizer-close" id="visualizer-close" aria-label="Cerrar visualización" title="Cerrar visualización">×</button>
         </div>
@@ -196,8 +194,8 @@ let analyserStatus: AnalyserStatus = "idle";
 let analyserContext: AudioContext | null = null;
 let analyserNode: AnalyserNode | null = null;
 let analyserSource: AudioNode | null = null;
-let capturedAudioStream: MediaStream | null = null;
 let analysisAudio: HTMLAudioElement | null = null;
+let analysisHls: Hls | null = null;
 let analyserTimeData = new Uint8Array(0);
 let analyserFrequencyData = new Uint8Array(0);
 let silentAnalyserFrames = 0;
@@ -529,7 +527,7 @@ function setAnalyserStatus(status: AnalyserStatus, message: string): void {
 
 function disposeAudioAnalyser(): void {
   analyserSource?.disconnect();
-  capturedAudioStream?.getTracks().forEach((track) => track.stop());
+  analysisHls?.destroy();
   analysisAudio?.pause();
   if (analysisAudio) {
     analysisAudio.removeAttribute("src");
@@ -539,8 +537,8 @@ function disposeAudioAnalyser(): void {
   analyserContext = null;
   analyserNode = null;
   analyserSource = null;
-  capturedAudioStream = null;
   analysisAudio = null;
+  analysisHls = null;
   analyserTimeData = new Uint8Array(0);
   analyserFrequencyData = new Uint8Array(0);
   silentAnalyserFrames = 0;
@@ -569,36 +567,28 @@ function startRealAudioAnalysis(station: Station): void {
   try {
     analyserContext = new AudioContext();
     analyserNode = prepareAnalyser(analyserContext);
-    const capturable = audio as HTMLAudioElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
-    const capture = capturable.captureStream ?? capturable.mozCaptureStream;
-    if (capture) {
-      const stream = capture.call(audio);
-      const track = stream.getAudioTracks()[0];
-      if (track && !track.muted) {
-        capturedAudioStream = stream;
-        analyserSource = analyserContext.createMediaStreamSource(stream);
-        analyserSource.connect(analyserNode);
-        track.addEventListener("mute", () => setAnalyserStatus("blocked", "LA FUENTE HA BLOQUEADO EL ANÁLISIS DEL AUDIO"));
-        void analyserContext.resume();
-        setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048");
-        return;
-      }
-      stream.getTracks().forEach((item) => item.stop());
-    }
-
     analysisAudio = new Audio();
     analysisAudio.crossOrigin = "anonymous";
     analysisAudio.preload = "auto";
-    analysisAudio.src = station.streamUrl;
     analysisAudio.addEventListener("error", () => setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO"), { once: true });
+    analysisAudio.addEventListener("playing", () => setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048"));
     analyserSource = analyserContext.createMediaElementSource(analysisAudio);
     analyserSource.connect(analyserNode);
     void analyserContext.resume();
-    void analysisAudio.play().then(() => {
-      setAnalyserStatus("ready", "SEÑAL REAL · FORMA DE ONDA Y FFT 2048");
-    }).catch(() => {
-      setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO");
-    });
+    if (station.streamFormat === "hls" && Hls.isSupported()) {
+      analysisHls = new Hls({ enableWorker: true, lowLatencyMode: true, startPosition: -1 });
+      analysisHls.on(Hls.Events.MANIFEST_PARSED, () => {
+        void analysisAudio?.play().catch(() => setAnalyserStatus("blocked", "EL NAVEGADOR BLOQUEÓ LA COPIA DE ANÁLISIS"));
+      });
+      analysisHls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) setAnalyserStatus("blocked", "NO SE PUDO ABRIR LA COPIA HLS PARA EL ANÁLISIS");
+      });
+      analysisHls.loadSource(station.streamUrl);
+      analysisHls.attachMedia(analysisAudio);
+    } else {
+      analysisAudio.src = station.streamUrl;
+      void analysisAudio.play().catch(() => setAnalyserStatus("blocked", "LA EMISORA REPRODUCE, PERO NO AUTORIZA ANALIZAR SU AUDIO"));
+    }
   } catch {
     setAnalyserStatus("blocked", "EL NAVEGADOR HA BLOQUEADO LA CAPTURA DE ESTA EMISORA");
   }

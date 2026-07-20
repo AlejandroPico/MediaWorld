@@ -15,7 +15,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Catálogo mundial independiente en tarjetas compactas, con carga continua al desplazarse, estado en tiempo real y acceso a las fichas sin coordenadas.
 - Reproductor minimalista de audio y vídeo, visible por defecto y ocultable sin detener la emisión. Consultar otras fichas tampoco interrumpe lo que está sonando.
 - Vídeo con controles de reproducción, pausa, volumen y pantalla completa; radio con 13 visualizadores reales a pantalla completa y controles propios.
-- Los visualizadores de radio emplean Web Audio: forma de onda temporal, FFT 2048, energía por bandas, RMS e historial espectral. Incluyen osciloscopio y vúmetros clásicos, estilos CRT y de la era 2000, además de modos radiales, matriciales y contemporáneos.
+- Los visualizadores de radio emplean Web Audio: forma de onda temporal, FFT 2048, energía por bandas, RMS e historial espectral. Incluyen osciloscopio, vúmetros, espectro CRT, columnas, espejo, matriz, cascada, modos radiales, terreno, partículas y pulso.
 - Si una emisora permite reproducir pero bloquea el análisis por las restricciones de origen del navegador, MediaWorld lo indica expresamente y mantiene una línea plana; nunca sustituye la señal por una animación falsa.
 - Nombre de programa o canción en el reproductor y en las fichas cuando la propia emisión HLS entrega metadatos ID3; el espacio desaparece cuando la fuente no los facilita.
 - Comprobación de salud durante la reproducción con estados de conexión, emisión, inestabilidad y falta de respuesta.
