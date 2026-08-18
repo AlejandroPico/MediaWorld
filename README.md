@@ -24,6 +24,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Temas noche, automático y día con cambio directo desde la botonera; automático sigue la luz solar de la ubicación y noche es el valor inicial para usuarios nuevos.
 - Catálogo SQLite real cargado y consultado dentro del navegador mediante WebAssembly.
 - Diseño adaptable a escritorio y móvil, con temas oscuro y claro.
+- En móvil, la botonera superior prescinde del rótulo, integra la orientación norte y el reproductor ocupa toda la franja inferior; los controles de zoom quedan reservados al escritorio.
 - Despliegue automático en GitHub Pages.
 
 ## Desarrollo local

@@ -34,6 +34,9 @@ app.innerHTML = `
       <button class="dock-button" id="catalog-toggle" aria-label="Abrir catálogo completo" aria-pressed="false" title="Catálogo completo">
         ${icon('<path d="M4 5h4v4H4V5ZM4 15h4v4H4v-4ZM11 6h9M11 17h9"/>')}
       </button>
+      <button class="dock-button mobile-north-button" id="mobile-reset-bearing" aria-label="Orientar el mapa al norte" title="Orientar al norte">
+        <span aria-hidden="true">N</span>
+      </button>
       <button class="dock-button" id="about-button" aria-label="Abrir acerca de MediaWorld" aria-expanded="false" title="Acerca de">
         ${icon('<circle cx="12" cy="12" r="9"/><path d="M12 10.5V17M12 7.2v.1"/>')}
       </button>
@@ -1308,6 +1311,7 @@ byId("player-toggle").addEventListener("click", () => {
   button.setAttribute("aria-label", playerVisible ? "Ocultar reproductor" : "Mostrar reproductor");
 });
 byId("home-button").addEventListener("click", () => { setView("map"); map?.flyTo({ center: [2, 30], zoom: 1.2, pitch: 0, bearing: 0 }); });
+byId("mobile-reset-bearing").addEventListener("click", () => map?.easeTo({ bearing: 0, pitch: 0 }));
 byId("locate-button").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((position) => {
   userCoordinates = { latitude: position.coords.latitude, longitude: position.coords.longitude };
   if (themeMode === "auto") resolveAutoTheme();
