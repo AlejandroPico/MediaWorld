@@ -34,6 +34,9 @@ app.innerHTML = `
       <button class="dock-button" id="catalog-toggle" aria-label="Abrir catálogo completo" aria-pressed="false" title="Catálogo completo">
         ${icon('<path d="M4 5h4v4H4V5ZM4 15h4v4H4v-4ZM11 6h9M11 17h9"/>')}
       </button>
+      <button class="dock-button" id="about-button" aria-label="Abrir acerca de MediaWorld" aria-expanded="false" title="Acerca de">
+        ${icon('<circle cx="12" cy="12" r="9"/><path d="M12 10.5V17M12 7.2v.1"/>')}
+      </button>
     </nav>
 
     <aside class="tool-panel filter-panel glass" id="filter-panel" aria-label="Filtros" hidden>
@@ -81,6 +84,32 @@ app.innerHTML = `
       </label>
       <div class="panel-actions">
         <button id="home-button">Vista mundial</button><button id="locate-button">Mi ubicación</button>
+      </div>
+    </aside>
+
+    <aside class="tool-panel about-panel glass" id="about-panel" aria-label="Acerca de MediaWorld" hidden>
+      <header class="panel-heading about-heading">
+        <div><span class="eyebrow">MEDIAWORLD</span><h2>Acerca del proyecto</h2></div>
+        <button class="panel-close" data-close-panel aria-label="Cerrar acerca de">×</button>
+      </header>
+      <p class="about-lead">Un atlas audiovisual para explorar radios y televisiones de todo el mundo sobre un globo interactivo.</p>
+      <p>MediaWorld reúne señales, fichas y ubicaciones en una misma experiencia. Permite recorrer el planeta, filtrar el catálogo, descubrir emisoras y reproducir las emisiones disponibles.</p>
+      <section class="about-author" aria-labelledby="about-author-title">
+        <span class="eyebrow">AUTOR</span>
+        <h3 id="about-author-title">Alejandro Pico</h3>
+        <p>Desarrollador de proyectos digitales, herramientas interactivas y experiencias visuales orientadas a explorar, aprender y experimentar.</p>
+      </section>
+      <div class="about-links">
+        <a href="https://github.com/AlejandroPico/MediaWorld" target="_blank" rel="noopener noreferrer">
+          ${icon('<path d="M9 19c-4.3 1.4-4.3-2.4-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.7-1.4 5.7-6.2 0-1.4-.5-2.5-1.3-3.4.1-.3.6-1.6-.1-3.4 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.4 0C6.5 2.2 5.4 2.5 5.4 2.5c-.7 1.8-.2 3.1-.1 3.4A4.8 4.8 0 0 0 4 9.3c0 4.8 2.9 5.9 5.7 6.2-.4.4-.6.8-.7 1.6V21"/>')}
+          <span><strong>Código en GitHub</strong><small>Repositorio del proyecto</small></span>
+          ${icon('<path d="m9 5 7 7-7 7"/>')}
+        </a>
+        <a href="https://alejandropico.github.io/Portfolio/" target="_blank" rel="noopener noreferrer">
+          ${icon('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.3 2.5 3.5 5.5 3.5 9S14.3 18.5 12 21c-2.3-2.5-3.5-5.5-3.5-9S9.7 5.5 12 3Z"/>')}
+          <span><strong>Portfolio y contacto</strong><small>Más proyectos de Alejandro</small></span>
+          ${icon('<path d="m9 5 7 7-7 7"/>')}
+        </a>
       </div>
     </aside>
 
@@ -1000,7 +1029,7 @@ function selectRelative(direction: number): void {
 
 function closePanels(): void {
   document.querySelectorAll<HTMLElement>(".tool-panel").forEach((panel) => { panel.hidden = true; });
-  ["filter-button", "layers-button"].forEach((id) => {
+  ["filter-button", "layers-button", "about-button"].forEach((id) => {
     const button = byId<HTMLButtonElement>(id);
     button.classList.remove("is-open");
     button.setAttribute("aria-expanded", "false");
@@ -1260,6 +1289,7 @@ document.querySelectorAll<HTMLButtonElement>(".media-tab[data-type]").forEach((b
 }));
 byId("filter-button").addEventListener("click", () => togglePanel("filter-panel", "filter-button"));
 byId("layers-button").addEventListener("click", () => togglePanel("layers-panel", "layers-button"));
+byId("about-button").addEventListener("click", () => togglePanel("about-panel", "about-button"));
 byId("theme-button").addEventListener("click", () => {
   const next: Record<ThemeMode, ThemeMode> = { night: "auto", auto: "day", day: "night" };
   setThemeMode(next[themeMode]);

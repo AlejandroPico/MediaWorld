@@ -9,6 +9,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Presentación política minimalista con fronteras y nombres de países, además de satélite, carreteras y relieve.
 - Puntos independientes para radio y televisión, visibles a distancia y sin mostrar nombres hasta un zoom cercano.
 - Visor principal limpio, sin barras permanentes: filtros, capas, tema, reproductor y catálogo viven en una botonera flotante.
+- Panel compacto «Acerca de» con información del proyecto, autor, repositorio y acceso al portfolio.
 - Búsqueda por emisora, ciudad, región, país, idioma o etiqueta.
 - Filtros compartidos por radio/televisión, país, región, disponibilidad de emisión y presencia de coordenadas.
 - Fichas editoriales con alcance, idioma, localización, estado de la emisión y web oficial.
