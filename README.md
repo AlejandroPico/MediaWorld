@@ -26,6 +26,7 @@ Explorador mundial de cadenas de radio y televisión sobre un globo 3D. MediaWor
 - Diseño adaptable a escritorio y móvil, con temas oscuro y claro.
 - En móvil, la botonera superior prescinde del rótulo, integra la orientación norte y el reproductor ocupa toda la franja inferior; los controles de zoom quedan reservados al escritorio.
 - Despliegue automático en GitHub Pages.
+- Si falla la actualización de una fuente externa, el despliegue recupera y valida el catálogo completo de la web publicada y compila la interfaz sin regenerar SQLite. Si tampoco puede recuperar un catálogo válido, cancela la publicación para evitar pérdida de emisoras.
 
 ## Desarrollo local
 

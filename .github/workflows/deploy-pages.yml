@@ -27,10 +27,21 @@ jobs:
           cache: npm
       - name: Instalar dependencias
         run: npm ci
+      - name: Comprobar recuperación del catálogo
+        run: node --test scripts/restore-published-catalog.test.mjs
       - name: Actualizar radios y televisiones regionales
+        id: refresh
+        continue-on-error: true
         run: npm run catalog:refresh
       - name: Compilar aplicación y catálogo
+        if: steps.refresh.outcome == 'success'
         run: npm run build
+      - name: Recuperar catálogo publicado y compilar aplicación
+        if: steps.refresh.outcome == 'failure'
+        run: |
+          node scripts/restore-published-catalog.mjs
+          npm run typecheck
+          npx vite build
       - name: Configurar Pages
         uses: actions/configure-pages@v5
         with:
